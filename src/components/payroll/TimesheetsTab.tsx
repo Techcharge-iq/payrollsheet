@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
-import { Check, Clock3, HardHat, Users } from "lucide-react";
+import { Check, Clock3, HardHat, Plus, Search, Users, X } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
 import type { TimesheetRecord } from "@/lib/payroll-data";
-import { btnGold, btnOutline, card, input, inputSm, select } from "./ui";
+import { btnGold, card, input, inputSm } from "./ui";
 
 interface Props {
   employees: Employee[];
@@ -63,6 +63,9 @@ export function TimesheetsTab({
 }: Props) {
   const [mode, setMode] = useState<"individual" | "bulk">("individual");
   const [employeeId, setEmployeeId] = useState("");
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [crewEmployeeIds, setCrewEmployeeIds] = useState<number[]>([]);
+  const [crewSearch, setCrewSearch] = useState("");
   const [site, setSite] = useState("");
   const [foreman, setForeman] = useState("");
   const [workDate, setWorkDate] = useState(today);
@@ -70,8 +73,15 @@ export function TimesheetsTab({
   const [bulkEntries, setBulkEntries] = useState<Record<number, AttendanceInput>>({});
 
   const activeEmployees = useMemo(
-    () => employees.filter((employee) => employee.status === "Active"),
+    () =>
+      employees
+        .filter((employee) => employee.status === "Active")
+        .sort((a, b) => a.name.localeCompare(b.name)),
     [employees],
+  );
+  const crewEmployees = useMemo(
+    () => activeEmployees.filter((employee) => crewEmployeeIds.includes(employee.id)),
+    [activeEmployees, crewEmployeeIds],
   );
   const sites = useMemo(
     () => [...new Set(timesheets.map((entry) => entry.site).filter(Boolean))].sort(),
@@ -123,6 +133,7 @@ export function TimesheetsTab({
       notify("Attendance entry saved.");
       setIndividual(emptyEntry);
       setEmployeeId("");
+      setEmployeeSearch("");
     } catch (saveError) {
       notify(
         saveError instanceof Error ? saveError.message : "Could not save the attendance entry.",
@@ -144,7 +155,7 @@ export function TimesheetsTab({
       notify(commonIssue, "warn");
       return;
     }
-    const touched = activeEmployees.filter((employee) => {
+    const touched = crewEmployees.filter((employee) => {
       const entry = bulkEntries[employee.id];
       return entry && (entry.inTime || entry.outTime || Number(entry.breakHours) !== 0);
     });
@@ -315,22 +326,23 @@ export function TimesheetsTab({
         {mode === "individual" ? (
           <form onSubmit={(event) => void saveIndividual(event)} className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-xs font-semibold text-slate-600">
-                Employee
-                <select
-                  required
-                  value={employeeId}
-                  onChange={(event) => setEmployeeId(event.target.value)}
-                  className={select + " mt-1"}
-                >
-                  <option value="">Select active employee…</option>
-                  {activeEmployees.map((employee) => (
-                    <option key={employee.id} value={employee.id}>
-                      {employee.name} — {employee.trade}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div>
+                <EmployeePicker
+                  employees={activeEmployees}
+                  search={employeeSearch}
+                  onSearchChange={(value) => {
+                    setEmployeeSearch(value);
+                    setEmployeeId("");
+                  }}
+                  onSelect={(employee) => {
+                    setEmployeeId(String(employee.id));
+                    setEmployeeSearch(employeeLabel(employee));
+                  }}
+                  actionLabel="Select"
+                  label="Employee"
+                  placeholder="Search active employees by name, trade or ID…"
+                />
+              </div>
               <div className="flex items-end">
                 {selectedEmployee && (
                   <p className="w-full rounded-lg bg-navy-soft px-3 py-2.5 text-xs text-navy">
@@ -357,9 +369,9 @@ export function TimesheetsTab({
         ) : (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm font-bold text-navy">
-              <Users size={17} /> Active crew{" "}
+              <Users size={17} /> Site crew{" "}
               <span className="text-xs font-normal text-muted-foreground">
-                ({activeEmployees.length})
+                ({crewEmployees.length} selected of {activeEmployees.length} active)
               </span>
             </div>
             {loading ? (
@@ -371,40 +383,84 @@ export function TimesheetsTab({
                 No active employees are available.
               </p>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-border">
-                <table className="w-full min-w-[760px] text-left text-sm">
-                  <thead className="bg-navy-soft text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th className="px-3 py-2.5">Employee</th>
-                      <th className="px-3 py-2.5">Times and break</th>
-                      <th className="px-3 py-2.5 text-right">Hours</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activeEmployees.map((employee) => {
-                      const entry = bulkEntries[employee.id] ?? emptyEntry;
-                      return (
-                        <tr key={employee.id} className="border-t border-border">
-                          <td className="px-3 py-3">
-                            <p className="font-semibold text-navy">{employee.name}</p>
-                            <p className="text-xs text-muted-foreground">{employee.trade}</p>
-                          </td>
-                          <td className="px-3 py-2">
-                            {renderEntryFields(
-                              entry,
-                              (patch) => updateBulkEntry(employee.id, patch),
-                              true,
-                            )}
-                          </td>
-                          <td className="px-3 py-3 text-right font-bold text-navy">
-                            {hoursFor(entry).toFixed(2)}
-                          </td>
+              <>
+                <EmployeePicker
+                  employees={activeEmployees}
+                  excludeIds={crewEmployeeIds}
+                  search={crewSearch}
+                  onSearchChange={setCrewSearch}
+                  onSelect={(employee) => {
+                    setCrewEmployeeIds((ids) =>
+                      ids.includes(employee.id) ? ids : [...ids, employee.id],
+                    );
+                    setCrewSearch("");
+                  }}
+                  actionLabel="Add"
+                  label="Add employees to this crew"
+                  placeholder="Search by employee name, trade or ID…"
+                />
+                {crewEmployees.length === 0 ? (
+                  <p className="rounded-lg bg-navy-soft p-5 text-center text-sm text-muted-foreground">
+                    Search for an active employee above and add them to this crew.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-border">
+                    <table className="w-full min-w-[760px] text-left text-sm">
+                      <thead className="bg-navy-soft text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2.5">Employee</th>
+                          <th className="px-3 py-2.5">Times and break</th>
+                          <th className="px-3 py-2.5 text-right">Hours</th>
+                          <th className="px-3 py-2.5 text-right">Action</th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                      </thead>
+                      <tbody>
+                        {crewEmployees.map((employee) => {
+                          const entry = bulkEntries[employee.id] ?? emptyEntry;
+                          return (
+                            <tr key={employee.id} className="border-t border-border">
+                              <td className="px-3 py-3">
+                                <p className="font-semibold text-navy">{employee.name}</p>
+                                <p className="text-xs text-muted-foreground">{employee.trade}</p>
+                              </td>
+                              <td className="px-3 py-2">
+                                {renderEntryFields(
+                                  entry,
+                                  (patch) => updateBulkEntry(employee.id, patch),
+                                  true,
+                                )}
+                              </td>
+                              <td className="px-3 py-3 text-right font-bold text-navy">
+                                {hoursFor(entry).toFixed(2)}
+                              </td>
+                              <td className="px-3 py-3 text-right">
+                                <button
+                                  type="button"
+                                  aria-label={`Remove ${employee.name} from site crew`}
+                                  title="Remove from crew"
+                                  onClick={() => {
+                                    setCrewEmployeeIds((ids) =>
+                                      ids.filter((id) => id !== employee.id),
+                                    );
+                                    setBulkEntries((entries) => {
+                                      const next = { ...entries };
+                                      delete next[employee.id];
+                                      return next;
+                                    });
+                                  }}
+                                  className="inline-flex items-center justify-center rounded-md p-1.5 text-slate-500 transition hover:bg-danger/10 hover:text-danger"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
             <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs text-muted-foreground">
@@ -424,5 +480,123 @@ export function TimesheetsTab({
         )}
       </div>
     </section>
+  );
+}
+
+function employeeLabel(employee: Employee) {
+  return `${employee.name} — ${employee.trade}`;
+}
+
+function EmployeePicker({
+  employees,
+  excludeIds = [],
+  search,
+  onSearchChange,
+  onSelect,
+  actionLabel,
+  label,
+  placeholder,
+}: {
+  employees: Employee[];
+  excludeIds?: number[];
+  search: string;
+  onSearchChange: (value: string) => void;
+  onSelect: (employee: Employee) => void;
+  actionLabel: "Select" | "Add";
+  label: string;
+  placeholder: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const matches = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return [];
+
+    return employees
+      .filter((employee) => !excludeIds.includes(employee.id))
+      .filter((employee) =>
+        [employee.name, employee.trade, employee.id_number, String(employee.id)]
+          .join(" ")
+          .toLowerCase()
+          .includes(query),
+      )
+      .slice(0, 30);
+  }, [employees, excludeIds, search]);
+
+  return (
+    <div
+      className="relative"
+      onBlur={(event) => {
+        if (
+          !(event.relatedTarget instanceof Node) ||
+          !event.currentTarget.contains(event.relatedTarget)
+        ) {
+          setIsOpen(false);
+        }
+      }}
+    >
+      <label className="block text-xs font-semibold text-slate-600">
+        {label}
+        <div className="relative mt-1">
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+          />
+          <input
+            type="search"
+            aria-label={label}
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            onFocus={() => setIsOpen(true)}
+            placeholder={placeholder}
+            className={input + " pl-9"}
+          />
+        </div>
+      </label>
+      {isOpen && search.trim() && (
+        <div
+          role="region"
+          aria-label={`${label} matches`}
+          className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-lg"
+        >
+          {matches.length ? (
+            <>
+              {matches.map((employee) => (
+                <button
+                  key={employee.id}
+                  type="button"
+                  onClick={() => {
+                    onSelect(employee);
+                    setIsOpen(false);
+                  }}
+                  className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition hover:bg-navy-soft"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-navy">
+                      {employee.name}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {employee.trade} · ID {employee.id_number || employee.id}
+                    </span>
+                  </span>
+                  <span className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-navy">
+                    <Plus size={14} />
+                    {actionLabel}
+                  </span>
+                </button>
+              ))}
+              {matches.length === 30 && (
+                <p className="px-3 py-2 text-xs text-muted-foreground">
+                  Showing the first 30 matches. Refine your search to find others.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="px-3 py-3 text-sm text-muted-foreground">
+              No active employee matches “{search.trim()}”.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
