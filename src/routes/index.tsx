@@ -12,6 +12,8 @@ import {
   Users,
   Banknote,
   AlertTriangle,
+  CalendarDays,
+  Clock3,
   Home,
   KeyRound,
   LogOut,
@@ -28,6 +30,8 @@ import { SlipsTab } from "@/components/payroll/SlipsTab";
 import { CostTab } from "@/components/payroll/CostTab";
 import { AdvancesTab } from "@/components/payroll/AdvancesTab";
 import { AuditHistoryTab } from "@/components/payroll/AuditHistoryTab";
+import { TimesheetsTab } from "@/components/payroll/TimesheetsTab";
+import { AttendanceReportTab } from "@/components/payroll/AttendanceReportTab";
 import {
   EmployeeModal,
   type EmployeeForm,
@@ -42,6 +46,8 @@ import {
   useAdvances,
   useSaveAdvance,
   useDeleteAdvance,
+  useSaveTimesheets,
+  useTimesheets,
 } from "@/lib/payroll-data";
 import type { AdvanceTx, Employee, EmployeeStatus, PayrollBatch } from "@/lib/payroll";
 import { db } from "@/integrations/supabase/external-client";
@@ -67,6 +73,8 @@ export const Route = createFileRoute("/")({
 const TABS = [
   { id: "employees", label: "Employees", icon: Users },
   { id: "payroll", label: "Monthly Payroll", icon: Save },
+  { id: "timesheets", label: "Daily Timesheets", icon: Clock3 },
+  { id: "attendance", label: "Attendance Report", icon: CalendarDays },
   { id: "advances", label: "Advances", icon: Banknote },
   { id: "history", label: "Employee History", icon: History },
   { id: "slips", label: "Salary Slips", icon: FileDown },
@@ -196,12 +204,15 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
   const saveBatch = useSaveBatch(canDelete);
   const deleteBatch = useDeleteBatch();
   const advancesQuery = useAdvances();
+  const timesheetsQuery = useTimesheets();
+  const saveTimesheets = useSaveTimesheets();
   const saveAdvance = useSaveAdvance();
   const deleteAdvance = useDeleteAdvance();
 
   const employees: Employee[] = employeesQuery.data ?? [];
   const batches: PayrollBatch[] = batchesQuery.data ?? [];
   const advances: AdvanceTx[] = advancesQuery.data ?? [];
+  const timesheets = timesheetsQuery.data ?? [];
 
   const notify = (msg: string, tone: "ok" | "warn" = "ok") => setToast({ msg, tone });
 
@@ -266,7 +277,8 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
     );
   };
 
-  const error = employeesQuery.error ?? batchesQuery.error ?? advancesQuery.error;
+  const error =
+    employeesQuery.error ?? batchesQuery.error ?? advancesQuery.error ?? timesheetsQuery.error;
   const mobileTabs: Array<{
     id: TabId | "home";
     label: string;
@@ -276,6 +288,8 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
     { id: "home", label: "Home", icon: Home },
     { id: "employees", label: "Employees", icon: Users },
     { id: "payroll", label: "Payroll", icon: Save },
+    { id: "timesheets", label: "Timesheets", icon: Clock3 },
+    { id: "attendance", label: "Attendance", icon: CalendarDays },
     { id: "advances", label: "Advances", icon: Banknote },
     { id: "cost", label: "Costs", icon: BarChart2 },
     { id: "audit", label: "Audit", icon: ClipboardList, adminOnly: true },
@@ -380,6 +394,27 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
           </p>
         )}
 
+        {tab === "timesheets" && (
+          <TimesheetsTab
+            employees={employees}
+            timesheets={timesheets}
+            loading={employeesQuery.isLoading}
+            error={timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : ""}
+            saving={saveTimesheets.isPending}
+            onSave={(rows) => saveTimesheets.mutateAsync(rows)}
+            notify={notify}
+          />
+        )}
+
+        {tab === "attendance" && (
+          <AttendanceReportTab
+            employees={employees}
+            timesheets={timesheets}
+            loading={employeesQuery.isLoading || timesheetsQuery.isLoading}
+            error={timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : ""}
+          />
+        )}
+
         {showHome && (
           <div
             className="mb-4 inline-flex items-center gap-1 rounded-xl border border-border bg-card p-1 shadow-sm"
@@ -432,6 +467,11 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
               employees={employees}
               batches={batches}
               advances={advances}
+              timesheets={timesheets}
+              timesheetsLoading={timesheetsQuery.isLoading}
+              timesheetsError={
+                timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : ""
+              }
               saving={saveBatch.isPending}
               canDelete={canDelete}
               notify={notify}

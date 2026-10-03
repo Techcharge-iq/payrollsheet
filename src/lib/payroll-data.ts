@@ -1,7 +1,47 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { db as supabase, dbAny } from "@/integrations/supabase/external-client";
+import type { Tables, TablesInsert } from "@/integrations/supabase/types";
 import type { AdvanceTx, Employee, PayrollBatch, PayrollLine } from "./payroll";
 import { toNum } from "./payroll";
+
+export type TimesheetRecord = Tables<"timesheets">;
+type TimesheetInsert = TablesInsert<"timesheets">;
+
+export function useTimesheets() {
+  return useQuery({
+    queryKey: ["timesheets"],
+    queryFn: async (): Promise<TimesheetRecord[]> => {
+      const pageSize = 1000;
+      const records: TimesheetRecord[] = [];
+      for (let start = 0; ; start += pageSize) {
+        const { data, error } = await supabase
+          .from("timesheets")
+          .select(
+            "id, employee_id, site, foreman, work_date, in_time, out_time, break_hours, total_hours, created_at",
+          )
+          .order("work_date", { ascending: false })
+          .range(start, start + pageSize - 1);
+        if (error) throw error;
+        records.push(...(data ?? []));
+        if (!data || data.length < pageSize) return records;
+      }
+    },
+  });
+}
+
+export function useSaveTimesheets() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (rows: TimesheetInsert[]) => {
+      if (!rows.length) throw new Error("Add at least one complete attendance entry.");
+      const { error } = await supabase
+        .from("timesheets")
+        .upsert(rows, { onConflict: "employee_id,work_date" });
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["timesheets"] }),
+  });
+}
 
 export function useEmployees() {
   return useQuery({

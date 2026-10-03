@@ -12,6 +12,7 @@ const TABLE_LABELS: Record<string, string> = {
   employees: "Employee",
   payroll_batches: "Payroll batch",
   payroll_lines: "Payroll line",
+  timesheets: "Attendance",
   users: "User access",
 };
 

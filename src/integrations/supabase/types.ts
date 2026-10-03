@@ -149,6 +149,51 @@ export type Database = {
           },
         ];
       };
+      timesheets: {
+        Row: {
+          id: string;
+          employee_id: number;
+          site: string;
+          foreman: string;
+          work_date: string;
+          in_time: string;
+          out_time: string;
+          break_hours: number;
+          total_hours: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          employee_id: number;
+          site: string;
+          foreman: string;
+          work_date: string;
+          in_time: string;
+          out_time: string;
+          break_hours?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          employee_id?: number;
+          site?: string;
+          foreman?: string;
+          work_date?: string;
+          in_time?: string;
+          out_time?: string;
+          break_hours?: number;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "timesheets_employee_id_fkey";
+            columns: ["employee_id"];
+            isOneToOne: false;
+            referencedRelation: "employees";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       audit_logs: {
         Row: {
           actor_email: string | null;

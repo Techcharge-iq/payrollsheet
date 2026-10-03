@@ -60,3 +60,9 @@ ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role;
 ```
 
 Admins can read, create, edit, and delete payroll records. HR can read, create, and edit employee, payroll, and advance records, but cannot delete rows; delete controls are hidden in the HR interface and Supabase RLS also blocks direct delete requests. Users without either role cannot access payroll data. Role changes are managed by an administrator in the SQL Editor.
+
+## Daily timesheets and attendance reports
+
+Payroll uses the existing `employees`, `payroll_batches`, and `payroll_lines` tables. Daily attendance is stored separately in `public.timesheets`, linked to an employee, with a site and foreman name, work date, in/out times, and break duration. `total_hours` is a generated database column, so saved hours are derived from the recorded shift rather than accepted from the browser. Site names remain on each timesheet entry; a separate site directory is not required.
+
+Apply [`supabase/migrations/20261003175100_timesheets.sql`](./supabase/migrations/20261003175100_timesheets.sql) after the existing payroll role and audit log migrations. The migration adds authenticated `admin`/`hr` row-level access, daily-entry uniqueness, shift validation, and audit logging. No Edge Function is needed: attendance persistence is protected by Supabase RLS, and the payroll-from-timesheets action prepares a reviewable draft without bypassing the existing payroll save flow.

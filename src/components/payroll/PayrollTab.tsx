@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
+  Clock3,
   Download,
   Eye,
   FileSpreadsheet,
@@ -31,6 +32,7 @@ import {
   type PayrollBatch,
   type PayrollLine,
 } from "@/lib/payroll";
+import type { TimesheetRecord } from "@/lib/payroll-data";
 import { downloadPayrollImportTemplate, readPayrollImport } from "@/lib/payroll-excel";
 import {
   Dialog,
@@ -45,6 +47,9 @@ interface Props {
   employees: Employee[];
   batches: PayrollBatch[];
   advances: AdvanceTx[];
+  timesheets: TimesheetRecord[];
+  timesheetsLoading: boolean;
+  timesheetsError: string;
   onSave: (batch: PayrollBatch) => Promise<void>;
   onDelete: (id: string) => void;
   canDelete: boolean;
@@ -408,6 +413,9 @@ export function PayrollTab({
   employees,
   batches,
   advances,
+  timesheets,
+  timesheetsLoading,
+  timesheetsError,
   onSave,
   onDelete,
   canDelete,
@@ -424,6 +432,16 @@ export function PayrollTab({
   const [submitError, setSubmitError] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const monthOptions = useMemo(
+    () =>
+      [
+        ...new Set([
+          ...payrollMonthOptions(),
+          ...timesheets.map((entry) => entry.work_date.slice(0, 7)),
+        ]),
+      ].sort(),
+    [timesheets],
+  );
   const monthBatches = useMemo(() => batches.filter((b) => b.month === month), [batches, month]);
 
   const locked = useMemo(
@@ -450,6 +468,77 @@ export function PayrollTab({
     setImportErrors([]);
     setSubmitError("");
     setDraft({ id: "", month, site: "", foreman: "", lines: [emptyLine()] });
+  };
+
+  const generateFromTimesheets = () => {
+    if (timesheetsError) {
+      notify(`Could not load timesheets: ${timesheetsError}`, "warn");
+      return;
+    }
+    if (timesheetsLoading) {
+      notify("Timesheet data is still loading. Try again in a moment.", "warn");
+      return;
+    }
+    const monthlyEntries = timesheets.filter((entry) => entry.work_date.startsWith(`${month}-`));
+    if (!monthlyEntries.length) {
+      notify(`No timesheet entries found for ${monthLabel(month)}.`, "warn");
+      return;
+    }
+
+    const totals = new Map<number, { hours: number; foremen: Set<string> }>();
+    monthlyEntries.forEach((entry) => {
+      const total = totals.get(entry.employee_id) ?? { hours: 0, foremen: new Set<string>() };
+      total.hours += Number(entry.total_hours);
+      total.foremen.add(entry.foreman);
+      totals.set(entry.employee_id, total);
+    });
+
+    let skipped = 0;
+    const lines: PayrollLine[] = [];
+    totals.forEach((total, employeeId) => {
+      if (locked.has(String(employeeId))) {
+        skipped += 1;
+        return;
+      }
+      const employee = employees.find((item) => item.id === employeeId);
+      if (!employee) {
+        skipped += 1;
+        return;
+      }
+      const line: PayrollLine = {
+        employee_id: employee.id,
+        foreman: total.foremen.size === 1 ? [...total.foremen][0]! : "Multiple foremen",
+        hours: Number(total.hours.toFixed(3)),
+        rate: employee.hourly_rate,
+        food_deduction: 0,
+        prev_advance: Math.min(
+          advanceCarryForward(employee.id, month, batches, advances),
+          total.hours * employee.hourly_rate,
+        ),
+        new_advance: 0,
+        other_deduction: 0,
+        net_salary: 0,
+        paid: 0,
+      };
+      line.net_salary = computeNet(line);
+      lines.push(line);
+    });
+
+    if (!lines.length) {
+      notify(
+        "All employees with timesheets are already included in another payroll batch.",
+        "warn",
+      );
+      return;
+    }
+
+    setImportErrors([]);
+    setSubmitError("");
+    setDraft({ id: "", month, site: "Multiple sites", foreman: "", lines });
+    notify(
+      `${lines.length} employee payroll line(s) generated for review.${skipped ? ` ${skipped} already-paid or unavailable employee(s) skipped.` : ""}`,
+      skipped ? "warn" : "ok",
+    );
   };
 
   const startEdit = (batch: PayrollBatch) => {
@@ -683,13 +772,21 @@ export function PayrollTab({
             onChange={(e) => setMonth(e.target.value)}
             className={select + " sm:w-64"}
           >
-            {payrollMonthOptions().map((m) => (
+            {monthOptions.map((m) => (
               <option key={m} value={m}>
                 {monthLabel(m)}
               </option>
             ))}
           </select>
         </div>
+        <button
+          onClick={generateFromTimesheets}
+          disabled={timesheetsLoading || Boolean(timesheetsError)}
+          className={btnOutline}
+        >
+          <Clock3 size={15} />{" "}
+          {timesheetsLoading ? "Loading timesheets…" : "Generate Batch from Timesheets"}
+        </button>
         <button onClick={startNew} className={btnGold}>
           <Plus size={16} /> New payroll batch
         </button>
