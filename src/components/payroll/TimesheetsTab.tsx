@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Check, Clock3, Copy, HardHat, Search, Users, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Clock3,
+  Copy,
+  HardHat,
+  Search,
+  Users,
+  UserRoundPlus,
+  X,
+} from "lucide-react";
 import type { Employee } from "@/lib/payroll";
 import { useTimesheetsForDate, type TimesheetRecord } from "@/lib/payroll-data";
 import { btnGold, btnOutline, card, input, inputSm } from "./ui";
@@ -100,12 +110,10 @@ function employeeLabel(employee: Employee) {
 
 function initialRow(
   employee: Employee,
-  workDate: string,
+  _workDate: string,
   site: string,
   foreman: string,
 ): AttendanceRow {
-  const existing = workDate;
-  void existing;
   return {
     employeeId: employee.id,
     site,
@@ -134,6 +142,7 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   const timesheets = useMemo(() => timesheetsQuery.data ?? [], [timesheetsQuery.data]);
   const [siteFilter, setSiteFilter] = useState("Al Khoud");
   const [crewName, setCrewName] = useState("All foremen");
+  const [assignmentForeman, setAssignmentForeman] = useState("");
   const [search, setSearch] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<AttendanceFilter>("All");
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -160,6 +169,21 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
         ]),
       ].sort(),
     [timesheets],
+  );
+  const foremanOptions = useMemo(
+    () =>
+      [
+        ...new Set([
+          ...timesheets
+            .filter((entry) => entry.work_date === workDate)
+            .map((entry) => entry.foreman)
+            .filter(Boolean),
+          ...employees
+            .filter((employee) => employee.trade === "FORMAN")
+            .map((employee) => employee.name),
+        ]),
+      ].sort((a, b) => a.localeCompare(b)),
+    [employees, timesheets, workDate],
   );
 
   const filteredEmployees = useMemo(() => {
@@ -233,10 +257,33 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
     return () => window.removeEventListener("beforeunload", protectUnload);
   }, [dirtyIds]);
 
+  const restoreSavedRows = () => {
+    const entriesByEmployee = new Map(
+      timesheets.map((entry) => [entry.employee_id, entry] as const),
+    );
+    const restored: Record<number, AttendanceRow> = {};
+    for (const employee of activeEmployees) {
+      const entry = entriesByEmployee.get(employee.id);
+      restored[employee.id] = {
+        employeeId: employee.id,
+        site: entry?.site ?? siteFilter,
+        foreman: entry?.foreman ?? "",
+        status: entry?.status ?? "PRESENT",
+        inTime: entry?.in_time ?? "",
+        outTime: entry?.out_time ?? "",
+        breakHours: String(entry?.break_hours ?? 0),
+        notes: entry?.remarks ?? "",
+        overtime: String(entry?.overtime_hours ?? 0),
+      };
+    }
+    setRows(restored);
+    setDirtyIds(new Set());
+  };
+
   const confirmDiscard = () => {
     if (!dirtyIds.size) return true;
     if (!window.confirm("Discard unsaved attendance changes?")) return false;
-    setDirtyIds(new Set());
+    restoreSavedRows();
     return true;
   };
 
@@ -306,16 +353,16 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   }));
 
   const saveAll = async () => {
+    const visibleIds = new Set(filteredEmployees.map((employee) => employee.id));
     const dirtyRecords = activeEmployees
-      .filter((employee) => dirtyIds.has(employee.id))
+      .filter((employee) => dirtyIds.has(employee.id) && visibleIds.has(employee.id))
       .map((employee) => ({
         employee,
         row: rows[employee.id] ?? initialRow(employee, workDate, siteFilter, ""),
       }));
     const invalid = dirtyRecords.filter(
       ({ employee, row }) =>
-        (dirtyIds.has(employee.id) &&
-          (row.status === "PRESENT" || row.status === "HALF_DAY") &&
+        ((row.status === "PRESENT" || row.status === "HALF_DAY") &&
           (!row.inTime ||
             !row.outTime ||
             parseLocalTime(row.outTime) === null ||
@@ -325,8 +372,8 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
             Number(row.breakHours) < 0 ||
             Number(row.breakHours) > hoursFor(row) ||
             Number(row.overtime) > hoursFor(row))) ||
-        (dirtyIds.has(employee.id) &&
-          (!Number.isFinite(Number(row.overtime)) || Number(row.overtime) < 0)),
+        !Number.isFinite(Number(row.overtime)) ||
+        Number(row.overtime) < 0,
     );
     if (invalid.length) {
       notify(
@@ -354,7 +401,8 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
 
     try {
       await onSave(payload);
-      setDirtyIds(new Set());
+      const savedIds = new Set(payload.map((entry) => entry.employee_id));
+      setDirtyIds((dirty) => new Set([...dirty].filter((employeeId) => !savedIds.has(employeeId))));
       notify(`${payload.length} attendance entr${payload.length === 1 ? "y" : "ies"} saved.`);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Could not save attendance entries.", "warn");
@@ -365,8 +413,9 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
     action: "present" | "absent" | "leave" | "in" | "out" | "break" | "shift" | "overtime",
     value?: string,
   ) => {
+    const visibleIds = new Set(filteredEmployees.map((employee) => employee.id));
     const targets = selectedIds.length
-      ? selectedIds
+      ? selectedIds.filter((employeeId) => visibleIds.has(employeeId))
       : filteredEmployees.map((employee) => employee.id);
     const applicableTargets = targets.filter((employeeId) => {
       if (action !== "overtime") return true;
@@ -490,10 +539,40 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   };
 
   const loadCrew = () => {
-    const destination = filteredEmployees.slice(0, 25).map((employee) => employee.id);
+    const destination = filteredEmployees.map((employee) => employee.id);
     setSelectedIds(destination);
     setSelectedEmployeeId(destination[0] ?? null);
     notify(`${destination.length} employee(s) loaded into the current crew.`);
+  };
+
+  const assignSelectedToBatch = (foreman: string) => {
+    if (!foreman) {
+      notify("Select a foreman before assigning employees to an attendance batch.", "warn");
+      return;
+    }
+    const visibleIds = new Set(filteredEmployees.map((employee) => employee.id));
+    const targets = selectedIds.length
+      ? selectedIds.filter((employeeId) => visibleIds.has(employeeId))
+      : [...visibleIds];
+    if (!targets.length) {
+      notify("Select at least one employee to assign to this attendance batch.", "warn");
+      return;
+    }
+    setRows((current) => {
+      const next = { ...current };
+      for (const employeeId of targets) {
+        const employee = activeEmployees.find((entry) => entry.id === employeeId);
+        if (!employee) continue;
+        const base = next[employeeId] ?? initialRow(employee, workDate, siteFilter, "");
+        next[employeeId] = { ...base, site: base.site || siteFilter, foreman };
+      }
+      return next;
+    });
+    setDirtyIds((dirty) => new Set([...dirty, ...targets]));
+    setCrewName(foreman);
+    setSelectedIds(targets);
+    setSelectedEmployeeId(targets[0] ?? null);
+    notify(`${targets.length} employee(s) assigned to ${foreman}'s attendance batch.`);
   };
 
   const selectedWithinRows = currentRecords.filter(({ employee }) =>
@@ -526,6 +605,7 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
               onChange={(event) => {
                 if (confirmDiscard()) {
                   setRows({});
+                  setSelectedIds([]);
                   setWorkDate(event.target.value);
                 }
               }}
@@ -537,36 +617,33 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
             <input
               value={siteFilter}
               onChange={(event) => {
-                if (confirmDiscard()) setSiteFilter(event.target.value);
+                if (confirmDiscard()) {
+                  setSelectedIds([]);
+                  setSiteFilter(event.target.value);
+                }
               }}
               list="site-options"
               className={input + " mt-1 min-w-[160px]"}
             />
           </label>
           <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-            Crew
+            Attendance batch
             <select
               value={crewName}
               onChange={(event) => {
-                if (confirmDiscard()) setCrewName(event.target.value);
+                if (confirmDiscard()) {
+                  setSelectedIds([]);
+                  setCrewName(event.target.value);
+                }
               }}
               className={input + " mt-1 min-w-[140px]"}
             >
               <option value="All foremen">All foremen</option>
-              {[
-                ...new Set(
-                  timesheets
-                    .filter((entry) => entry.work_date === workDate)
-                    .map((entry) => entry.foreman)
-                    .filter(Boolean),
-                ),
-              ]
-                .sort()
-                .map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
+              {foremanOptions.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
             </select>
           </label>
         </div>
@@ -609,6 +686,26 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
                   <X size={14} /> Mark absent
                 </button>
               </div>
+              <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                Assign selected workers to batch
+                <input
+                  value={assignmentForeman}
+                  onChange={(event) => setAssignmentForeman(event.target.value)}
+                  list="foreman-options"
+                  placeholder="Enter or choose foreman…"
+                  className={input + " mt-1"}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => assignSelectedToBatch(assignmentForeman)}
+                className={btnOutline + " w-full justify-center"}
+              >
+                <UserRoundPlus size={14} />
+                {selectedIds.length
+                  ? `Assign ${selectedIds.length} selected`
+                  : "Assign visible workers"}
+              </button>
             </div>
 
             <div className="space-y-2">
@@ -620,14 +717,20 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
                 />
                 <input
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) => {
+                    setSelectedIds([]);
+                    setSearch(event.target.value);
+                  }}
                   placeholder="Search employee"
                   className={input + " pl-8"}
                 />
               </div>
               <select
                 value={selectedStatus}
-                onChange={(event) => setSelectedStatus(event.target.value as AttendanceFilter)}
+                onChange={(event) => {
+                  setSelectedIds([]);
+                  setSelectedStatus(event.target.value as AttendanceFilter);
+                }}
                 className={input}
               >
                 <option value="All">All statuses</option>
@@ -668,7 +771,7 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
             <div className="rounded-lg border border-border p-3 text-xs">
               <div className="flex items-center justify-between font-bold text-navy">
                 <span>Crew</span>
-                <strong>{crewName}</strong>
+                <strong>{crewName === "All foremen" ? "All workers" : crewName}</strong>
               </div>
               <p className="mt-2 text-muted-foreground">
                 {filteredEmployees.length} active workers
@@ -952,7 +1055,7 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
             ? `Attendance load issue: ${timesheetsQuery.error.message}`
             : timesheetsQuery.isLoading
               ? `Loading attendance for ${workDate}…`
-              : `Showing ${currentRecords.length} rows for ${workDate}`}
+              : `Showing ${currentRecords.length} rows for ${workDate}${crewName === "All foremen" ? "" : ` · ${crewName} batch`}`}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -989,7 +1092,8 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
             onClick={() => void saveAll()}
             className={btnGold + " justify-center px-4 py-2 text-xs"}
           >
-            <HardHat size={15} /> {saving ? "Saving…" : "Save all"}
+            <HardHat size={15} />{" "}
+            {saving ? "Saving…" : crewName === "All foremen" ? "Save attendance" : "Save batch"}
           </button>
         </div>
       </div>

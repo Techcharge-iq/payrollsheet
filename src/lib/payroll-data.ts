@@ -8,6 +8,16 @@ export type TimesheetRecord = Tables<"timesheets">;
 export type PayrollSiteAllocation = Tables<"payroll_site_allocations">;
 type TimesheetInsert = TablesInsert<"timesheets">;
 
+interface AdvanceTransactionRecord {
+  id: string | number;
+  employee_id: string | number;
+  date: string | null;
+  amount: string | number;
+  reason: string | null;
+  payment_method: string | null;
+  notes: string | null;
+}
+
 const TIMESHEET_FIELDS =
   "id, employee_id, site, foreman, work_date, status, in_time, out_time, break_hours, total_hours, regular_hours, overtime_hours, remarks, created_at";
 
@@ -411,7 +421,7 @@ export function useAdvances() {
           .range(start, start + pageSize - 1);
         if (error) throw error;
         records.push(
-          ...((data ?? []) as Tables<"advance_transactions">[]).map((a) => ({
+          ...((data ?? []) as AdvanceTransactionRecord[]).map((a) => ({
             id: String(a.id),
             employee_id: Number(a.employee_id),
             date: a.date ?? "",
