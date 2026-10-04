@@ -1,22 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  CalendarDays,
   Check,
   ChevronDown,
-  Clock3,
   Copy,
-  HardHat,
   Pencil,
   Plus,
   Search,
   Trash2,
-  Users,
   X,
 } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
 import { useTimesheetsForDate, type TimesheetRecord } from "@/lib/payroll-data";
-import { btnGold, btnIcon, btnOutline, card, input, select } from "./ui";
+import { btnGold, btnOutline, card, input, select } from "./ui";
 
 interface Props {
   employees: Employee[];
@@ -429,20 +425,9 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   };
 
   return (
-    <section className="space-y-5">
-      <div className={`${card} flex flex-wrap items-center justify-between gap-4 p-4`}>
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-navy-soft text-navy">
-            <CalendarDays size={20} />
-          </div>
-          <div>
-            <h2 className="font-display text-xl font-extrabold text-navy">Daily attendance</h2>
-            <p className="text-xs text-muted-foreground">
-              Create a site and foreman batch, then choose the workers for that day.
-            </p>
-          </div>
-        </div>
-        <label className="block min-w-44 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+    <section className="space-y-2.5">
+      <div className={`${card} flex flex-wrap items-end gap-2 p-2.5 xl:flex-nowrap`}>
+        <label className="min-w-36 flex-1 text-[10px] font-semibold text-slate-500">
           Attendance date
           <input
             type="date"
@@ -453,9 +438,49 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
               setWorkDate(event.target.value);
               setCopyPickerOpen(false);
             }}
-            className={`${input} mt-1`}
+            className={`${input} mt-0.5 h-8 rounded-md px-2 py-1 text-xs`}
           />
         </label>
+        <label className="min-w-40 flex-1 text-[10px] font-semibold text-slate-500">
+          Site / project
+          <input
+            value={site}
+            onChange={(event) => {
+              setSite(event.target.value);
+              setDirty(true);
+            }}
+            placeholder="Enter or choose a site"
+            list="attendance-sites"
+            className={`${input} mt-0.5 h-8 rounded-md px-2 py-1 text-xs`}
+          />
+        </label>
+        <label className="min-w-40 flex-1 text-[10px] font-semibold text-slate-500">
+          Foreman
+          <input
+            value={foreman}
+            onChange={(event) => {
+              setForeman(event.target.value);
+              setDirty(true);
+            }}
+            placeholder="Enter or choose a foreman"
+            list="attendance-foremen"
+            className={`${input} mt-0.5 h-8 rounded-md px-2 py-1 text-xs`}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={copyPreviousDay}
+          className={`${btnOutline} h-8 shrink-0 rounded-md px-2.5 py-1 text-xs`}
+        >
+          <Copy size={13} /> Copy previous day
+        </button>
+        <button
+          type="button"
+          onClick={startNewBatch}
+          className={`${btnGold} h-8 shrink-0 rounded-md px-2.5 py-1 text-xs`}
+        >
+          <Plus size={14} /> New batch
+        </button>
       </div>
 
       {timesheetsQuery.error && (
@@ -470,27 +495,10 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
         </div>
       ) : (
         <>
-          <div className={`${card} space-y-4 p-4 sm:p-5`}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="font-display text-lg font-bold text-navy">
-                  {editingKey ? "Edit attendance batch" : "Create attendance batch"}
-                </h3>
-                <p className="text-xs text-muted-foreground">
-                  One employee can only be assigned to one site per day.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={copyPreviousDay} className={btnOutline}>
-                  <Copy size={15} /> Copy previous day
-                </button>
-                {editingKey && (
-                  <button type="button" onClick={startNewBatch} className={btnOutline}>
-                    <Plus size={15} /> New batch
-                  </button>
-                )}
-              </div>
-            </div>
+          <div className="space-y-2">
+            {editingKey && (
+              <p className="px-1 text-xs font-semibold text-navy">Editing saved attendance batch</p>
+            )}
 
             {copyPickerOpen && (
               <div className="rounded-xl border border-gold/40 bg-gold/10 p-3">
@@ -514,35 +522,6 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
               </div>
             )}
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="text-xs font-semibold text-slate-600">
-                Site / project
-                <input
-                  value={site}
-                  onChange={(event) => {
-                    setSite(event.target.value);
-                    setDirty(true);
-                  }}
-                  placeholder="Enter or choose a site"
-                  list="attendance-sites"
-                  className={`${input} mt-1`}
-                />
-              </label>
-              <label className="text-xs font-semibold text-slate-600">
-                Foreman
-                <input
-                  value={foreman}
-                  onChange={(event) => {
-                    setForeman(event.target.value);
-                    setDirty(true);
-                  }}
-                  placeholder="Enter or choose a foreman"
-                  list="attendance-foremen"
-                  className={`${input} mt-1`}
-                />
-              </label>
-            </div>
-
             <datalist id="attendance-sites">
               {[...new Set(timesheets.map((entry) => entry.site).filter(Boolean))]
                 .sort()
@@ -565,13 +544,12 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
                 ))}
             </datalist>
 
-            <div className="relative">
-              <p className="mb-1 text-xs font-semibold text-slate-600">Employees for this batch</p>
+            <div className="relative w-full max-w-xs">
               <button
                 type="button"
                 onClick={() => setEmployeePickerOpen((open) => !open)}
                 aria-expanded={employeePickerOpen}
-                className={`${input} flex items-center justify-between text-left`}
+                className={`${input} flex h-8 items-center justify-between rounded-md px-2 py-1 text-left text-xs`}
               >
                 <span>
                   {selectedCount
@@ -581,7 +559,7 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
                 <ChevronDown size={16} />
               </button>
               {employeePickerOpen && (
-                <div className="absolute z-30 mt-1 w-full rounded-xl border border-border bg-card p-2 shadow-xl">
+                <div className="absolute z-30 mt-1 w-full rounded-md border border-border bg-card p-2 shadow-lg">
                   <div className="relative mb-2">
                     <Search
                       size={15}
@@ -694,263 +672,305 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
               </p>
             )}
 
-            {selectedEmployees.length > 0 && (
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Daily attendance · {selectedEmployees.length} worker(s)
-                  </p>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-slate-50 px-2.5 py-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setAttendance((current) => {
+                    const next = { ...current };
+                    selectedEmployees.forEach((employee) => {
+                      const row = next[employee.id] ?? defaultAttendance();
+                      next[employee.id] = {
+                        ...row,
+                        status: "PRESENT",
+                        inTime: "08:00",
+                        outTime: "17:00",
+                        breakHours: "1",
+                      };
+                    });
+                    return next;
+                  });
+                  setDirty(true);
+                }}
+                disabled={!selectedCount}
+                className={`${btnOutline} h-8 rounded-md px-2.5 py-1 text-xs`}
+              >
+                <Check size={13} /> Set all present 08:00–17:00
+              </button>
+              <div className="flex items-center gap-2">
+                {dirty && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setAttendance((current) => {
-                        const next = { ...current };
-                        selectedEmployees.forEach((employee) => {
-                          const row = next[employee.id] ?? defaultAttendance();
-                          next[employee.id] = {
-                            ...row,
-                            status: "PRESENT",
-                            inTime: "08:00",
-                            outTime: "17:00",
-                            breakHours: "1",
-                          };
-                        });
-                        return next;
-                      });
-                      setDirty(true);
-                    }}
-                    className={btnOutline}
+                    onClick={startNewBatch}
+                    className={`${btnOutline} h-8 rounded-md px-2.5 py-1 text-xs`}
                   >
-                    <Check size={14} /> Set all present · 08:00–17:00
-                  </button>
-                </div>
-                {selectedEmployees.map((employee) => {
-                  const row = attendance[employee.id] ?? defaultAttendance();
-                  const workedToday = worked(row.status);
-                  const assignedExisting =
-                    editingKey !== null &&
-                    timesheets.some(
-                      (entry) =>
-                        entry.employee_id === employee.id &&
-                        batchKey(entry.site, entry.foreman) === editingKey,
-                    );
-                  return (
-                    <article
-                      key={employee.id}
-                      className="rounded-xl border border-border bg-card p-3 sm:p-4"
-                    >
-                      <div className="mb-3 flex items-start justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-navy-soft text-navy">
-                            <Users size={16} />
-                          </div>
-                          <div className="min-w-0">
-                            <h4 className="truncate text-sm font-bold text-navy">
-                              {employee.name}
-                            </h4>
-                            <p className="text-[11px] text-muted-foreground">
-                              {employee.trade} · {employee.id_number || `ID ${employee.id}`}
-                            </p>
-                          </div>
-                        </div>
-                        {!assignedExisting && (
-                          <button
-                            type="button"
-                            onClick={() => toggleEmployee(employee)}
-                            className={btnIcon}
-                            aria-label={`Remove ${employee.name} from this unsaved batch`}
-                            title="Remove from batch"
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        )}
-                      </div>
-                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
-                        <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                          Status
-                          <select
-                            value={row.status}
-                            onChange={(event) =>
-                              updateAttendance(employee.id, {
-                                status: event.target.value as AttendanceStatus,
-                              })
-                            }
-                            className={`${select} mt-1`}
-                          >
-                            {ATTENDANCE_STATUSES.map((status) => (
-                              <option key={status.value} value={status.value}>
-                                {status.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                          In
-                          <input
-                            type="time"
-                            value={row.inTime}
-                            disabled={!workedToday}
-                            onChange={(event) =>
-                              updateAttendance(employee.id, { inTime: event.target.value })
-                            }
-                            className={`${input} mt-1 disabled:opacity-50`}
-                          />
-                        </label>
-                        <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                          Out
-                          <input
-                            type="time"
-                            value={row.outTime}
-                            disabled={!workedToday}
-                            onChange={(event) =>
-                              updateAttendance(employee.id, { outTime: event.target.value })
-                            }
-                            className={`${input} mt-1 disabled:opacity-50`}
-                          />
-                        </label>
-                        <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                          Break (hrs)
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.25"
-                            value={row.breakHours}
-                            disabled={!workedToday}
-                            onChange={(event) =>
-                              updateAttendance(employee.id, { breakHours: event.target.value })
-                            }
-                            className={`${input} mt-1 disabled:opacity-50`}
-                          />
-                        </label>
-                        <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                          Overtime (hrs)
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.25"
-                            value={row.overtime}
-                            disabled={!workedToday}
-                            onChange={(event) =>
-                              updateAttendance(employee.id, { overtime: event.target.value })
-                            }
-                            className={`${input} mt-1 disabled:opacity-50`}
-                          />
-                        </label>
-                        <div className="flex flex-col justify-end rounded-lg bg-navy-soft px-3 py-2">
-                          <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                            Regular hrs
-                          </span>
-                          <strong className="mt-1 text-sm text-navy">
-                            {Math.max(0, hoursFor(row) - (Number(row.overtime) || 0)).toFixed(2)}
-                          </strong>
-                        </div>
-                        <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500 sm:col-span-2 lg:col-span-6">
-                          Notes
-                          <input
-                            value={row.notes}
-                            onChange={(event) =>
-                              updateAttendance(employee.id, { notes: event.target.value })
-                            }
-                            placeholder="Optional attendance note"
-                            className={`${input} mt-1`}
-                          />
-                        </label>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
-              <p className="text-xs text-muted-foreground">
-                {selectedCount
-                  ? `${selectedCount} employee(s) · ${site.trim() || "Site not set"} · ${foreman.trim() || "Foreman not set"}`
-                  : "Choose a site, foreman, and one or more employees to begin."}
-              </p>
-              <div className="flex gap-2">
-                {dirty && (
-                  <button type="button" onClick={startNewBatch} className={btnOutline}>
-                    <X size={15} /> Cancel changes
+                    <X size={13} /> Cancel
                   </button>
                 )}
                 <button
                   type="button"
                   disabled={saving || !selectedCount || Boolean(duplicateAssignments.length)}
                   onClick={() => void saveBatch()}
-                  className={btnGold}
+                  className={`${btnGold} h-8 rounded-md px-3 py-1 text-xs`}
                 >
-                  <HardHat size={15} />{" "}
-                  {saving ? "Saving…" : editingKey ? "Save changes" : "Save batch"}
+                  {saving ? "Saving…" : "Save Changes"}
                 </button>
               </div>
             </div>
+
+            <div className="overflow-x-auto rounded-md border border-border bg-card">
+              <table className="w-full min-w-[1240px] table-fixed border-collapse text-xs">
+                <thead className="bg-slate-100">
+                  <tr className="h-8 border-b border-border text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    <th className="w-9 px-2 text-center" aria-label="Selected" />
+                    <th className="w-32 px-2 text-left">Status</th>
+                    <th className="w-36 px-2 text-left">Employee</th>
+                    <th className="w-36 px-2 text-left">Role / Phone</th>
+                    <th className="w-28 px-2 text-left">In</th>
+                    <th className="w-28 px-2 text-left">Out</th>
+                    <th className="w-20 px-2 text-left">Break (hrs)</th>
+                    <th className="w-24 px-2 text-left">Overtime (hrs)</th>
+                    <th className="w-24 px-2 text-left">Regular hrs</th>
+                    <th className="px-2 text-left">Notes</th>
+                    <th className="w-12 px-2 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {selectedEmployees.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={11}
+                        className="h-14 px-3 text-center text-xs text-muted-foreground"
+                      >
+                        Select employees above to add them to this attendance batch.
+                      </td>
+                    </tr>
+                  ) : (
+                    selectedEmployees.map((employee) => {
+                      const row = attendance[employee.id] ?? defaultAttendance();
+                      const workedToday = worked(row.status);
+                      const assignedExisting =
+                        editingKey !== null &&
+                        timesheets.some(
+                          (entry) =>
+                            entry.employee_id === employee.id &&
+                            batchKey(entry.site, entry.foreman) === editingKey,
+                        );
+                      const statusStyle =
+                        row.status === "PRESENT"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "border-slate-200 bg-white text-slate-700";
+                      return (
+                        <tr key={employee.id} className="h-11 hover:bg-slate-50/70">
+                          <td className="px-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked
+                              disabled={assignedExisting}
+                              onChange={() => toggleEmployee(employee)}
+                              aria-label={`Select ${employee.name}`}
+                              className="h-3.5 w-3.5 accent-[var(--navy)] disabled:opacity-50"
+                            />
+                          </td>
+                          <td className="px-2">
+                            <select
+                              value={row.status}
+                              onChange={(event) =>
+                                updateAttendance(employee.id, {
+                                  status: event.target.value as AttendanceStatus,
+                                })
+                              }
+                              aria-label={`${employee.name} status`}
+                              className={`${select} h-7 rounded border px-1.5 py-0 text-[11px] ${statusStyle}`}
+                            >
+                              {ATTENDANCE_STATUSES.map((status) => (
+                                <option key={status.value} value={status.value}>
+                                  {status.label}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td
+                            className="truncate px-2 font-semibold text-navy"
+                            title={employee.name}
+                          >
+                            {employee.name}
+                          </td>
+                          <td
+                            className="truncate px-2 text-[11px] text-slate-500"
+                            title={`${employee.trade} / ${employee.id_number || employee.id}`}
+                          >
+                            {employee.trade} / {employee.id_number || `ID ${employee.id}`}
+                          </td>
+                          <td className="px-2">
+                            <input
+                              type="time"
+                              value={row.inTime}
+                              disabled={!workedToday}
+                              onChange={(event) =>
+                                updateAttendance(employee.id, { inTime: event.target.value })
+                              }
+                              aria-label={`${employee.name} clock-in time`}
+                              className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
+                            />
+                          </td>
+                          <td className="px-2">
+                            <input
+                              type="time"
+                              value={row.outTime}
+                              disabled={!workedToday}
+                              onChange={(event) =>
+                                updateAttendance(employee.id, { outTime: event.target.value })
+                              }
+                              aria-label={`${employee.name} clock-out time`}
+                              className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
+                            />
+                          </td>
+                          <td className="px-2">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.25"
+                              value={row.breakHours}
+                              disabled={!workedToday}
+                              onChange={(event) =>
+                                updateAttendance(employee.id, { breakHours: event.target.value })
+                              }
+                              aria-label={`${employee.name} break hours`}
+                              className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
+                            />
+                          </td>
+                          <td className="px-2">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.25"
+                              value={row.overtime}
+                              disabled={!workedToday}
+                              onChange={(event) =>
+                                updateAttendance(employee.id, { overtime: event.target.value })
+                              }
+                              aria-label={`${employee.name} overtime hours`}
+                              className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
+                            />
+                          </td>
+                          <td className="px-2 text-xs font-semibold tabular-nums text-navy">
+                            {Math.max(0, hoursFor(row) - (Number(row.overtime) || 0)).toFixed(2)}
+                          </td>
+                          <td className="px-2">
+                            <input
+                              value={row.notes}
+                              onChange={(event) =>
+                                updateAttendance(employee.id, { notes: event.target.value })
+                              }
+                              aria-label={`${employee.name} notes`}
+                              placeholder="—"
+                              className={`${input} h-7 rounded px-1.5 py-0 text-xs`}
+                            />
+                          </td>
+                          <td className="px-2 text-center">
+                            {!assignedExisting && (
+                              <button
+                                type="button"
+                                onClick={() => toggleEmployee(employee)}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-500 hover:border-danger/40 hover:bg-danger/5 hover:text-danger"
+                                aria-label={`Remove ${employee.name} from this unsaved batch`}
+                                title="Remove from batch"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          <section className="space-y-3">
+          <section className="space-y-1.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="font-display text-lg font-bold text-navy">Saved batches</h3>
-                <p className="text-xs text-muted-foreground">
-                  {timesheets.length} worker record(s) in {savedBatches.length} site / foreman
-                  batch(es) for {workDate}.
-                </p>
+              <div className="flex items-baseline gap-2">
+                <h3 className="text-sm font-bold text-navy">Saved batches</h3>
+                <span className="text-[11px] text-muted-foreground">
+                  {timesheets.length} workers · {savedBatches.length} batches · {workDate}
+                </span>
               </div>
-              <button type="button" onClick={startNewBatch} className={btnGold}>
-                <Plus size={15} /> Create another batch
+              <button
+                type="button"
+                onClick={startNewBatch}
+                className={`${btnGold} h-8 rounded-md px-2.5 py-1 text-xs`}
+              >
+                <Plus size={13} /> Create another batch
               </button>
             </div>
-            {savedBatches.length === 0 ? (
-              <div className={`${card} p-8 text-center`}>
-                <Clock3 size={26} className="mx-auto text-slate-400" />
-                <p className="mt-2 text-sm font-semibold text-navy">
-                  No attendance batches saved for this date.
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Create the first batch above, or copy a batch from the previous day.
-                </p>
-              </div>
-            ) : (
-              savedBatches.map((batch) => {
-                const present = batch.entries.filter((entry) => worked(entry.status)).length;
-                const hours = batch.entries.reduce(
-                  (sum, entry) => sum + Number(entry.total_hours ?? 0),
-                  0,
-                );
-                return (
-                  <article
-                    key={batch.key}
-                    className={`${card} flex flex-wrap items-center gap-3 p-4`}
-                  >
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-navy-soft text-navy">
-                      <Users size={18} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <h4 className="truncate text-sm font-bold text-navy">
-                        {batch.site} <span className="font-normal text-slate-400">·</span>{" "}
-                        {batch.foreman}
-                      </h4>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {batch.entries.length} employee(s) · {present} present · {hours.toFixed(2)}{" "}
-                        recorded hours
-                      </p>
-                      <p className="mt-1 truncate text-[11px] text-slate-500">
-                        {batch.entries
-                          .map(
-                            (entry) =>
-                              employeeById.get(entry.employee_id)?.name ??
-                              `ID ${entry.employee_id}`,
-                          )
-                          .join(", ")}
-                      </p>
-                    </div>
-                    <button type="button" onClick={() => editBatch(batch)} className={btnOutline}>
-                      <Pencil size={14} /> Edit batch
-                    </button>
-                  </article>
-                );
-              })
-            )}
+            <div className="overflow-x-auto rounded-md border border-border bg-card">
+              <table className="w-full min-w-[760px] border-collapse text-xs">
+                <thead className="bg-slate-100">
+                  <tr className="h-8 border-b border-border text-left text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    <th className="w-10 px-2">#</th>
+                    <th className="w-28 px-2">Date</th>
+                    <th className="px-2">Site / project</th>
+                    <th className="px-2">Foreman</th>
+                    <th className="w-36 px-2">Workers</th>
+                    <th className="w-40 px-2">Created at</th>
+                    <th className="w-28 px-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {savedBatches.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={7}
+                        className="h-11 px-3 text-center text-xs text-muted-foreground"
+                      >
+                        No attendance batches saved for this date. Create a batch above or copy
+                        yesterday’s attendance.
+                      </td>
+                    </tr>
+                  ) : (
+                    savedBatches.map((batch, index) => {
+                      const present = batch.entries.filter((entry) => worked(entry.status)).length;
+                      const firstEntry = batch.entries[0];
+                      return (
+                        <tr key={batch.key} className="h-10 hover:bg-slate-50/70">
+                          <td className="px-2 tabular-nums text-slate-500">{index + 1}</td>
+                          <td className="px-2 tabular-nums">
+                            {new Date(`${workDate}T00:00:00`).toLocaleDateString("en-GB")}
+                          </td>
+                          <td className="max-w-52 truncate px-2 font-semibold text-navy">
+                            {batch.site}
+                          </td>
+                          <td className="max-w-48 truncate px-2">{batch.foreman}</td>
+                          <td className="px-2 tabular-nums">
+                            {batch.entries.length} · {present} present
+                          </td>
+                          <td className="px-2 text-slate-500">
+                            {firstEntry
+                              ? new Date(firstEntry.created_at).toLocaleString("en-GB", {
+                                  dateStyle: "short",
+                                  timeStyle: "short",
+                                })
+                              : "—"}
+                          </td>
+                          <td className="px-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() => editBatch(batch)}
+                              className={`${btnOutline} h-7 rounded px-2 py-0.5 text-[11px]`}
+                            >
+                              <Pencil size={12} /> Edit batch
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
         </>
       )}
