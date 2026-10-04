@@ -150,7 +150,9 @@ export function HistoryTab({ employees, batches, advances }: Props) {
                         </td>
                         <td className="px-3 py-2.5 text-right">{fmt(toNum(r.hours))}</td>
                         <td className="px-3 py-2.5 text-right">{fmt(toNum(r.rate))}</td>
-                        <td className="px-3 py-2.5 text-right font-semibold">{fmt(lineGross(r))}</td>
+                        <td className="px-3 py-2.5 text-right font-semibold">
+                          {fmt(lineGross(r))}
+                        </td>
                         <td className="px-3 py-2.5 text-right text-danger">
                           {fmt(toNum(r.food_deduction))}
                         </td>

@@ -682,7 +682,9 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
             {tab === "history" && (
               <HistoryTab employees={employees} batches={batches} advances={advances} />
             )}
-            {tab === "slips" && <SlipsTab employees={employees} batches={batches} notify={notify} />}
+            {tab === "slips" && (
+              <SlipsTab employees={employees} batches={batches} notify={notify} />
+            )}
             {tab === "cost" && <CostTab batches={batches} employees={employees} notify={notify} />}
             {tab === "audit" && canDelete && <AuditHistoryTab />}
           </main>

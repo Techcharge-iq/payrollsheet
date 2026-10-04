@@ -170,7 +170,10 @@ export function EmployeeModal({
                   { label: "Total paid", value: fmt(totals.paid) },
                   { label: "Outstanding balance", value: fmt(totals.balance) },
                 ].map((s) => (
-                  <div key={s.label} className="rounded-lg border border-border bg-navy-soft/40 p-3">
+                  <div
+                    key={s.label}
+                    className="rounded-lg border border-border bg-navy-soft/40 p-3"
+                  >
                     <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
                       {s.label}
                     </p>
@@ -211,14 +214,19 @@ export function EmployeeModal({
                         </tr>
                       ) : (
                         rows.map((r) => (
-                          <tr key={r.id ?? `${r.batchId}-${r.month}`} className="border-t border-border">
+                          <tr
+                            key={r.id ?? `${r.batchId}-${r.month}`}
+                            className="border-t border-border"
+                          >
                             <td className="px-3 py-2 font-medium">{monthLabel(r.month)}</td>
                             <td className="px-3 py-2 text-slate-600">
                               {r.site || "—"} / {r.foreman || r.batchForeman || "—"}
                             </td>
                             <td className="px-3 py-2 text-right">{fmt(toNum(r.hours))}</td>
                             <td className="px-3 py-2 text-right">{fmt(toNum(r.rate))}</td>
-                            <td className="px-3 py-2 text-right font-semibold">{fmt(lineGross(r))}</td>
+                            <td className="px-3 py-2 text-right font-semibold">
+                              {fmt(lineGross(r))}
+                            </td>
                             <td className="px-3 py-2 text-right text-danger">
                               {fmt(toNum(r.food_deduction))}
                             </td>

@@ -32,21 +32,23 @@ export interface PayrollBatch {
   lines: PayrollLine[];
 }
 
-export const TRADES = [
-  "CARPENTER",
-  "STEEL FIXER",
-  "HELPER",
-  "MASON",
-  "ELEC",
-  "PLUB",
-  "FORMAN",
-];
+export const TRADES = ["CARPENTER", "STEEL FIXER", "HELPER", "MASON", "ELEC", "PLUB", "FORMAN"];
 
 export const STATUSES: EmployeeStatus[] = ["Active", "Holiday", "Cancelled"];
 
 export const MONTHS = [
-  "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12",
-  "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-06",
+  "2026-07",
+  "2026-08",
+  "2026-09",
+  "2026-10",
+  "2026-11",
+  "2026-12",
+  "2027-01",
+  "2027-02",
+  "2027-03",
+  "2027-04",
+  "2027-05",
+  "2027-06",
 ];
 
 export function currentPayrollMonth() {
@@ -121,10 +123,7 @@ export function getCarryForward(
 }
 
 /** Advance still outstanding after every recorded month. */
-export function outstandingAdvance(
-  employeeId: number | string,
-  batches: PayrollBatch[],
-) {
+export function outstandingAdvance(employeeId: number | string, batches: PayrollBatch[]) {
   let balance = 0;
   batches.forEach((b) => {
     b.lines
@@ -145,10 +144,7 @@ export interface HistoryRow extends PayrollLine {
 }
 
 /** Flattened month-by-month rows for one employee (or all when empty). */
-export function employeeRows(
-  batches: PayrollBatch[],
-  employeeId?: number | string,
-): HistoryRow[] {
+export function employeeRows(batches: PayrollBatch[], employeeId?: number | string): HistoryRow[] {
   const out: HistoryRow[] = [];
   batches.forEach((b) => {
     b.lines.forEach((l) => {

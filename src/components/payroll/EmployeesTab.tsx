@@ -51,10 +51,12 @@ export function EmployeesTab({ employees, loading, onNew, onView, onEdit }: Prop
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:hidden">
         <div className="mobile-metric mobile-metric-primary">
-          <p>Active staff</p><strong>{activeCount}</strong>
+          <p>Active staff</p>
+          <strong>{activeCount}</strong>
         </div>
         <div className="mobile-metric">
-          <p>Total employees</p><strong>{employees.length}</strong>
+          <p>Total employees</p>
+          <strong>{employees.length}</strong>
         </div>
       </div>
       <div className={card + " hidden flex-col gap-3 p-4 sm:flex sm:flex-row sm:items-center"}>
@@ -132,22 +134,52 @@ export function EmployeesTab({ employees, loading, onNew, onView, onEdit }: Prop
         {loading ? (
           Array.from({ length: 5 }).map((_, i) => <div key={i} className="mobile-list-skeleton" />)
         ) : filtered.length === 0 ? (
-          <div className={card + " p-8 text-center text-sm text-muted-foreground"}>No employees match this search.</div>
-        ) : filtered.map((employee) => (
-          <article key={employee.id} className="mobile-list-card" onClick={() => onView(employee)}>
-            <div className="mobile-avatar" aria-hidden="true">{employee.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <h2 className="truncate text-sm font-bold text-foreground">{employee.name}</h2>
-                <span className={`status-pill ${statusStyle[employee.status]}`}>{employee.status}</span>
+          <div className={card + " p-8 text-center text-sm text-muted-foreground"}>
+            No employees match this search.
+          </div>
+        ) : (
+          filtered.map((employee) => (
+            <article
+              key={employee.id}
+              className="mobile-list-card"
+              onClick={() => onView(employee)}
+            >
+              <div className="mobile-avatar" aria-hidden="true">
+                {employee.name
+                  .split(" ")
+                  .slice(0, 2)
+                  .map((part) => part[0])
+                  .join("")}
               </div>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">{employee.trade} · ID {employee.id_number || "Not assigned"}</p>
-              <p className="mt-2 text-xs text-muted-foreground">Salary / hr <strong className="text-foreground">{fmt(employee.hourly_rate)} OMR</strong></p>
-            </div>
-            <button aria-label={`Edit ${employee.name}`} onClick={(event) => { event.stopPropagation(); onEdit(employee); }} className={btnIcon}><Pencil size={16} /></button>
-            <ChevronRight size={18} className="shrink-0 text-muted-foreground" />
-          </article>
-        ))}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <h2 className="truncate text-sm font-bold text-foreground">{employee.name}</h2>
+                  <span className={`status-pill ${statusStyle[employee.status]}`}>
+                    {employee.status}
+                  </span>
+                </div>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {employee.trade} · ID {employee.id_number || "Not assigned"}
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Salary / hr{" "}
+                  <strong className="text-foreground">{fmt(employee.hourly_rate)} OMR</strong>
+                </p>
+              </div>
+              <button
+                aria-label={`Edit ${employee.name}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onEdit(employee);
+                }}
+                className={btnIcon}
+              >
+                <Pencil size={16} />
+              </button>
+              <ChevronRight size={18} className="shrink-0 text-muted-foreground" />
+            </article>
+          ))
+        )}
       </div>
 
       <div className={card + " hidden overflow-hidden sm:block"}>
@@ -179,7 +211,10 @@ export function EmployeesTab({ employees, loading, onNew, onView, onEdit }: Prop
                 </tr>
               ) : (
                 filtered.map((e) => (
-                  <tr key={e.id} className="border-b border-border last:border-0 hover:bg-navy-soft/50">
+                  <tr
+                    key={e.id}
+                    className="border-b border-border last:border-0 hover:bg-navy-soft/50"
+                  >
                     <td className="px-4 py-2.5 text-slate-500">{e.id}</td>
                     <td className="px-4 py-2.5 font-medium text-foreground">{e.name}</td>
                     <td className="px-4 py-2.5 text-slate-600">{e.trade}</td>

@@ -130,13 +130,16 @@ export function CostTab({ batches, employees, notify }: Props) {
       />
 
       <div className="mobile-metric-grid grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {        [
+        {[
           { label: "Unique workers", value: String(grand.workers) },
           { label: "Total net salary (OMR)", value: fmt(grand.net), money: true },
           { label: "Total paid (OMR)", value: fmt(grand.paid), money: true },
           { label: "Total remaining (OMR)", value: fmt(grand.net - grand.paid), money: true },
         ].map((s) => (
-          <div key={s.label} className={`${card} p-3.5 ${s.label.includes("remaining") ? "mobile-metric-alert" : ""}`}>
+          <div
+            key={s.label}
+            className={`${card} p-3.5 ${s.label.includes("remaining") ? "mobile-metric-alert" : ""}`}
+          >
             <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
               {s.label}
             </p>
@@ -148,30 +151,51 @@ export function CostTab({ batches, employees, notify }: Props) {
       </div>
 
       <div className="space-y-3 sm:hidden">
-        {costRows.length === 0 ? <div className={card + " p-8 text-center text-sm text-muted-foreground"}>No payroll data for the selected period.</div> : costRows.map((row) => (
-          <button key={row.label} onClick={() => setListOpen(true)} className="mobile-list-card w-full text-left">
-            <div className="mobile-avatar"><MapPin size={19} /></div>
-            <div className="min-w-0 flex-1">
-              <h2 className="truncate text-sm font-bold text-foreground">{row.label}</h2>
-              <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><Users size={13} /> {row.workers} workers</p>
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                <span className="data-badge"><small>Net</small>{fmt(row.net)}</span>
-                <span className="data-badge data-badge-paid"><small>Paid</small>{fmt(row.paid)}</span>
-                <span className="data-badge data-badge-due"><small>Due</small>{fmt(row.net - row.paid)}</span>
+        {costRows.length === 0 ? (
+          <div className={card + " p-8 text-center text-sm text-muted-foreground"}>
+            No payroll data for the selected period.
+          </div>
+        ) : (
+          costRows.map((row) => (
+            <button
+              key={row.label}
+              onClick={() => setListOpen(true)}
+              className="mobile-list-card w-full text-left"
+            >
+              <div className="mobile-avatar">
+                <MapPin size={19} />
               </div>
-            </div>
-            <ChevronRight size={18} className="shrink-0 text-muted-foreground" />
-          </button>
-        ))}
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-sm font-bold text-foreground">{row.label}</h2>
+                <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                  <Users size={13} /> {row.workers} workers
+                </p>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <span className="data-badge">
+                    <small>Net</small>
+                    {fmt(row.net)}
+                  </span>
+                  <span className="data-badge data-badge-paid">
+                    <small>Paid</small>
+                    {fmt(row.paid)}
+                  </span>
+                  <span className="data-badge data-badge-due">
+                    <small>Due</small>
+                    {fmt(row.net - row.paid)}
+                  </span>
+                </div>
+              </div>
+              <ChevronRight size={18} className="shrink-0 text-muted-foreground" />
+            </button>
+          ))
+        )}
       </div>
       <div className={card + " hidden overflow-hidden sm:block"}>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b border-border bg-navy-soft text-left text-[11px] font-bold uppercase tracking-wide text-slate-600">
-                <th className="px-4 py-3">
-                  Site
-                </th>
+                <th className="px-4 py-3">Site</th>
                 <th className="px-4 py-3 text-right">Workers</th>
                 <th className="px-4 py-3 text-right">Net salary (OMR)</th>
                 <th className="px-4 py-3 text-right">Paid</th>
