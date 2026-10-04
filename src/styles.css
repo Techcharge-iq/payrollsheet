@@ -74,15 +74,15 @@
 
 :root {
   --radius: 0.625rem;
-  --navy: oklch(0.29 0.025 245);
-  --navy-dark: oklch(0.23 0.022 245);
-  --navy-soft: oklch(0.955 0.008 210);
-  --gold: oklch(0.55 0.09 205);
-  --gold-dark: oklch(0.47 0.085 205);
-  --money: oklch(0.5 0.11 165);
-  --danger: oklch(0.53 0.2 27);
-  --warn: oklch(0.62 0.14 70);
-  --canvas: oklch(0.972 0.005 210);
+  --navy: oklch(0.2 0.026 233);
+  --navy-dark: oklch(0.14 0.024 233);
+  --navy-soft: oklch(0.96 0.009 218);
+  --gold: oklch(0.64 0.12 224);
+  --gold-dark: oklch(0.56 0.11 224);
+  --money: oklch(0.52 0.12 155);
+  --danger: oklch(0.58 0.2 22);
+  --warn: oklch(0.66 0.14 62);
+  --canvas: oklch(0.96 0.006 220);
   --font-body: "Manrope", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Sora", ui-sans-serif, system-ui, sans-serif;
 
@@ -163,6 +163,62 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+  }
+
+  .workstation-shell {
+    background:
+      radial-gradient(circle at top left, oklch(0.9 0.03 235 / 0.85), transparent 30%),
+      linear-gradient(180deg, oklch(0.97 0.006 220) 0%, oklch(0.95 0.008 220) 100%);
+  }
+
+  .workstation-sidebar {
+    position: sticky;
+    top: 20px;
+    display: flex;
+    height: calc(100vh - 40px);
+    width: 240px;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.82);
+    box-shadow: 0 14px 34px oklch(0.2 0.03 233 / 0.08);
+    backdrop-filter: blur(8px);
+  }
+
+  .workstation-header {
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.8);
+    box-shadow: 0 8px 22px oklch(0.2 0.03 233 / 0.06);
+    backdrop-filter: blur(8px);
+  }
+
+  .workstation-nav {
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(8px);
+  }
+
+  .workstation-command-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--navy-soft);
+    padding: 0.6rem 0.85rem;
+    color: var(--muted-foreground);
+    transition:
+      border-color 150ms ease,
+      background-color 150ms ease,
+      color 150ms ease;
+  }
+
+  .workstation-command-trigger:hover {
+    border-color: color-mix(in oklch, var(--navy) 15%, var(--border));
+    background: oklch(0.965 0.01 226);
+    color: var(--navy);
   }
 }
 

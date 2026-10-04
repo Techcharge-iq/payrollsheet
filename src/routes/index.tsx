@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -19,6 +19,7 @@ import {
   LogOut,
   Plus,
   ReceiptText,
+  Search,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 
@@ -37,6 +38,15 @@ import {
   type EmployeeForm,
   type ModalMode,
 } from "@/components/payroll/EmployeeModal";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut,
+} from "@/components/ui/command";
 import {
   useBatches,
   useDeleteBatch,
@@ -196,6 +206,7 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
   const [form, setForm] = useState<EmployeeForm>(emptyForm);
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "warn" } | null>(null);
   const [registeringPasskey, setRegisteringPasskey] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
 
   const employeesQuery = useEmployees();
   const batchesQuery = useBatches();
@@ -296,248 +307,426 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
   ];
   const showHome = tab === "history" || tab === "slips";
 
-  return (
-    <div className="mobile-app-shell min-h-screen bg-canvas font-sans text-foreground">
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-        <header className="mb-6 rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-navy shadow-sm">
-                <HardHat size={23} className="text-primary-foreground" />
-              </div>
-              <div className="min-w-0">
-                <h1 className="font-display text-xl font-extrabold tracking-tight text-navy sm:text-2xl">
-                  Site Payroll Manager
-                </h1>
-                <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
-                  Payroll operations, organized and secure.
-                </p>
-              </div>
-            </div>
+  const commandActions = useMemo(
+    () => [
+      {
+        id: "new-employee",
+        label: "New employee",
+        description: "Create a new worker profile",
+        shortcut: "N",
+        action: () => {
+          setForm(emptyForm);
+          setMode("new");
+          setTab("employees");
+        },
+      },
+      {
+        id: "employees",
+        label: "Open employees",
+        description: "Review the employee master list",
+        shortcut: "E",
+        action: () => setTab("employees"),
+      },
+      {
+        id: "payroll",
+        label: "Open payroll",
+        description: "Manage monthly payroll batches",
+        shortcut: "P",
+        action: () => setTab("payroll"),
+      },
+      {
+        id: "timesheets",
+        label: "Open timesheets",
+        description: "Review daily attendance entries",
+        shortcut: "T",
+        action: () => setTab("timesheets"),
+      },
+      {
+        id: "attendance",
+        label: "Open attendance report",
+        description: "View labor and attendance metrics",
+        shortcut: "A",
+        action: () => setTab("attendance"),
+      },
+      {
+        id: "advances",
+        label: "Open advances",
+        description: "Track outstanding employee advances",
+        shortcut: "V",
+        action: () => setTab("advances"),
+      },
+      {
+        id: "history",
+        label: "Open history",
+        description: "See employee payroll history and balances",
+        shortcut: "H",
+        action: () => setTab("history"),
+      },
+      {
+        id: "slips",
+        label: "Open salary slips",
+        description: "Generate and download payslips",
+        shortcut: "S",
+        action: () => setTab("slips"),
+      },
+      {
+        id: "cost",
+        label: "Open cost allocation",
+        description: "Review labour and site cost reporting",
+        shortcut: "C",
+        action: () => setTab("cost"),
+      },
+      ...(canDelete
+        ? [
+            {
+              id: "audit",
+              label: "Open audit log",
+              description: "Review payroll changes and transactions",
+              shortcut: "L",
+              action: () => setTab("audit"),
+            },
+          ]
+        : []),
+    ],
+    [canDelete],
+  );
 
-            <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
-              <div className="flex min-w-0 flex-1 items-center gap-3 rounded-xl bg-navy-soft px-3 py-2 sm:flex-none">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-card font-display text-sm font-bold uppercase text-navy shadow-sm">
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+      if (event.key === "Escape") {
+        setCommandOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  return (
+    <div className="workstation-shell min-h-screen bg-canvas font-sans text-foreground">
+      <div className="mx-auto flex max-w-[1600px] gap-5 px-4 py-5 sm:px-6 xl:px-7">
+        <aside className="workstation-sidebar hidden w-60 shrink-0 xl:flex">
+          <div className="flex items-center gap-3 border-b border-border px-4 py-4">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-navy text-primary-foreground shadow-sm">
+              <HardHat size={22} />
+            </div>
+            <div>
+              <h1 className="font-display text-lg font-extrabold tracking-tight text-navy">
+                Payroll Workstation
+              </h1>
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                Site ops
+              </p>
+            </div>
+          </div>
+
+          <nav className="flex flex-1 flex-col gap-1 p-3">
+            {TABS.filter((item) => !("adminOnly" in item) || canDelete).map(
+              ({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  onClick={() => setTab(id)}
+                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
+                    tab === id
+                      ? "bg-navy text-primary-foreground shadow-sm"
+                      : "text-slate-600 hover:bg-navy-soft hover:text-navy"
+                  }`}
+                >
+                  <Icon size={15} />
+                  {label}
+                </button>
+              ),
+            )}
+          </nav>
+
+          <div className="border-t border-border p-3">
+            <div className="rounded-xl bg-navy-soft p-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-card font-display text-sm font-bold uppercase text-navy shadow-sm">
                   {email.slice(0, 1) || role.slice(0, 1)}
                 </div>
                 <div className="min-w-0">
-                  <p className="max-w-52 truncate text-xs font-bold text-navy">{email}</p>
-                  <p className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  <p className="truncate text-xs font-bold text-navy">{email}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
                     {role} access
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => void addPasskey()}
-                disabled={registeringPasskey}
-                className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-border bg-card px-3 text-xs font-semibold text-navy transition hover:border-navy/20 hover:bg-navy-soft disabled:cursor-wait disabled:opacity-60"
-                aria-label="Add passkey"
-                title="Add passkey"
-              >
-                <KeyRound size={15} />
-                <span>{registeringPasskey ? "Adding…" : "Add passkey"}</span>
-              </button>
-              <button
-                onClick={() => void db.auth.signOut()}
-                className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-border bg-card px-3 text-xs font-semibold text-navy transition hover:border-danger/30 hover:bg-danger/5 hover:text-danger"
-                aria-label="Sign out"
-                title="Sign out"
-              >
-                <LogOut size={15} />
-                <span>Sign out</span>
-              </button>
             </div>
           </div>
-        </header>
+        </aside>
 
-        <nav className="mobile-desktop-tabs mb-5 flex w-fit max-w-full gap-1 overflow-x-auto rounded-xl border border-border bg-card p-1 shadow-sm">
-          {TABS.filter((item) => !("adminOnly" in item) || canDelete).map(
-            ({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                onClick={() => setTab(id)}
-                className={`flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
-                  tab === id
-                    ? "bg-navy text-primary-foreground shadow-sm"
-                    : "text-slate-600 hover:bg-navy-soft hover:text-navy"
-                }`}
-              >
-                <Icon size={14} />
-                {label}
-              </button>
-            ),
-          )}
-        </nav>
+        <div className="min-w-0 flex-1">
+          <header className="workstation-header mb-5 p-4 sm:p-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-navy shadow-sm">
+                  <HardHat size={21} className="text-primary-foreground" />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="font-display text-xl font-extrabold tracking-tight text-navy sm:text-2xl">
+                    Site Payroll Manager
+                  </h1>
+                  <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
+                    Payroll operations, organized and secure.
+                  </p>
+                </div>
+              </div>
 
-        <nav className="mobile-bottom-tabs" aria-label="Primary navigation">
-          {mobileTabs
-            .filter((item) => !item.adminOnly || canDelete)
-            .map(({ id, label, icon: Icon }) => {
-              const active = id === "home" ? showHome : tab === id;
-              return (
+              <div className="ml-auto flex flex-wrap items-center gap-2 sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setCommandOpen(true)}
+                  className="workstation-command-trigger flex-1 sm:flex-none"
+                >
+                  <Search size={15} />
+                  <span className="truncate text-left text-sm font-medium">Search / commands</span>
+                  <span className="ml-auto rounded-md border border-border bg-card px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    ⌘K
+                  </span>
+                </button>
+                <button
+                  onClick={() => void addPasskey()}
+                  disabled={registeringPasskey}
+                  className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-border bg-card px-3 text-xs font-semibold text-navy transition hover:border-navy/20 hover:bg-navy-soft disabled:cursor-wait disabled:opacity-60"
+                  aria-label="Add passkey"
+                  title="Add passkey"
+                >
+                  <KeyRound size={15} />
+                  <span>{registeringPasskey ? "Adding…" : "Add passkey"}</span>
+                </button>
+                <button
+                  onClick={() => void db.auth.signOut()}
+                  className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-border bg-card px-3 text-xs font-semibold text-navy transition hover:border-danger/30 hover:bg-danger/5 hover:text-danger"
+                  aria-label="Sign out"
+                  title="Sign out"
+                >
+                  <LogOut size={15} />
+                  <span>Sign out</span>
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <nav className="workstation-nav mobile-desktop-tabs mb-5 flex w-fit max-w-full gap-1 overflow-x-auto p-1">
+            {TABS.filter((item) => !("adminOnly" in item) || canDelete).map(
+              ({ id, label, icon: Icon }) => (
                 <button
                   key={id}
-                  onClick={() => setTab(id === "home" ? "history" : id)}
-                  aria-current={active ? "page" : undefined}
-                  className={`mobile-bottom-tab ${active ? "is-active" : ""}`}
+                  onClick={() => setTab(id)}
+                  className={`flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
+                    tab === id
+                      ? "bg-navy text-primary-foreground shadow-sm"
+                      : "text-slate-600 hover:bg-navy-soft hover:text-navy"
+                  }`}
                 >
-                  <Icon size={20} strokeWidth={active ? 2.5 : 2} />
-                  <span>{label}</span>
+                  <Icon size={14} />
+                  {label}
                 </button>
-              );
-            })}
-        </nav>
+              ),
+            )}
+          </nav>
 
-        {error && (
-          <p className="mb-4 flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm font-medium text-danger">
-            <AlertTriangle size={15} /> {(error as Error).message}
-          </p>
-        )}
+          <nav className="mobile-bottom-tabs" aria-label="Primary navigation">
+            {mobileTabs
+              .filter((item) => !item.adminOnly || canDelete)
+              .map(({ id, label, icon: Icon }) => {
+                const active = id === "home" ? showHome : tab === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => setTab(id === "home" ? "history" : id)}
+                    aria-current={active ? "page" : undefined}
+                    className={`mobile-bottom-tab ${active ? "is-active" : ""}`}
+                  >
+                    <Icon size={20} strokeWidth={active ? 2.5 : 2} />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+          </nav>
 
-        {tab === "timesheets" && (
-          <TimesheetsTab
-            employees={employees}
-            timesheets={timesheets}
-            loading={employeesQuery.isLoading}
-            error={timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : ""}
-            saving={saveTimesheets.isPending}
-            onSave={(rows) => saveTimesheets.mutateAsync(rows)}
-            notify={notify}
-          />
-        )}
-
-        {tab === "attendance" && (
-          <AttendanceReportTab
-            employees={employees}
-            timesheets={timesheets}
-            loading={employeesQuery.isLoading || timesheetsQuery.isLoading}
-            error={timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : ""}
-          />
-        )}
-
-        {showHome && (
-          <div
-            className="mb-4 inline-flex items-center gap-1 rounded-xl border border-border bg-card p-1 shadow-sm"
-            aria-label="History and salary slips"
-          >
-            <button
-              type="button"
-              onClick={() => setTab("history")}
-              aria-current={tab === "history" ? "page" : undefined}
-              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
-                tab === "history"
-                  ? "bg-navy text-white shadow-sm"
-                  : "text-muted-foreground hover:bg-navy-soft hover:text-navy"
-              }`}
-            >
-              <History size={17} /> History
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("slips")}
-              aria-current={tab === "slips" ? "page" : undefined}
-              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
-                tab === "slips"
-                  ? "bg-navy text-white shadow-sm"
-                  : "text-muted-foreground hover:bg-navy-soft hover:text-navy"
-              }`}
-            >
-              <ReceiptText size={17} /> Salary slips
-            </button>
-          </div>
-        )}
-
-        <main key={tab} className="mobile-screen-enter">
-          {tab === "employees" && (
-            <EmployeesTab
-              employees={employees}
-              batches={batches}
-              loading={employeesQuery.isLoading}
-              onNew={() => {
-                setForm(emptyForm);
-                setMode("new");
-              }}
-              onView={(e) => openFor(e, "view")}
-              onEdit={(e) => openFor(e, "edit")}
-            />
+          {error && (
+            <p className="mb-4 flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm font-medium text-danger">
+              <AlertTriangle size={15} /> {(error as Error).message}
+            </p>
           )}
 
-          {tab === "payroll" && (
-            <PayrollTab
+          {tab === "timesheets" && (
+            <TimesheetsTab
               employees={employees}
-              batches={batches}
-              advances={advances}
               timesheets={timesheets}
-              timesheetsLoading={timesheetsQuery.isLoading}
-              timesheetsError={
-                timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : ""
-              }
-              saving={saveBatch.isPending}
-              canDelete={canDelete}
+              loading={employeesQuery.isLoading}
+              error={timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : ""}
+              saving={saveTimesheets.isPending}
+              onSave={(rows) => saveTimesheets.mutateAsync(rows)}
               notify={notify}
-              onNewEmployee={() => {
+            />
+          )}
+
+          {tab === "attendance" && (
+            <AttendanceReportTab
+              employees={employees}
+              timesheets={timesheets}
+              loading={employeesQuery.isLoading || timesheetsQuery.isLoading}
+              error={timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : ""}
+            />
+          )}
+
+          {showHome && (
+            <div
+              className="mb-4 inline-flex items-center gap-1 rounded-xl border border-border bg-card p-1 shadow-sm"
+              aria-label="History and salary slips"
+            >
+              <button
+                type="button"
+                onClick={() => setTab("history")}
+                aria-current={tab === "history" ? "page" : undefined}
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
+                  tab === "history"
+                    ? "bg-navy text-white shadow-sm"
+                    : "text-muted-foreground hover:bg-navy-soft hover:text-navy"
+                }`}
+              >
+                <History size={17} /> History
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("slips")}
+                aria-current={tab === "slips" ? "page" : undefined}
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
+                  tab === "slips"
+                    ? "bg-navy text-white shadow-sm"
+                    : "text-muted-foreground hover:bg-navy-soft hover:text-navy"
+                }`}
+              >
+                <ReceiptText size={17} /> Salary slips
+              </button>
+            </div>
+          )}
+
+          <main key={tab} className="mobile-screen-enter">
+            {tab === "employees" && (
+              <EmployeesTab
+                employees={employees}
+                batches={batches}
+                loading={employeesQuery.isLoading}
+                onNew={() => {
+                  setForm(emptyForm);
+                  setMode("new");
+                }}
+                onView={(e) => openFor(e, "view")}
+                onEdit={(e) => openFor(e, "edit")}
+              />
+            )}
+
+            {tab === "payroll" && (
+              <PayrollTab
+                employees={employees}
+                batches={batches}
+                advances={advances}
+                timesheets={timesheets}
+                timesheetsLoading={timesheetsQuery.isLoading}
+                timesheetsError={
+                  timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : ""
+                }
+                saving={saveBatch.isPending}
+                canDelete={canDelete}
+                notify={notify}
+                onNewEmployee={() => {
+                  setForm(emptyForm);
+                  setMode("new");
+                }}
+                onSave={async (batch) => {
+                  await saveBatch.mutateAsync(batch);
+                  notify("Payroll batch saved.");
+                }}
+                onDelete={(id) =>
+                  deleteBatch.mutate(id, {
+                    onSuccess: () => notify("Payroll batch deleted."),
+                    onError: (e) => notify((e as Error).message, "warn"),
+                  })
+                }
+              />
+            )}
+
+            {tab === "advances" && (
+              <AdvancesTab
+                employees={employees}
+                batches={batches}
+                advances={advances}
+                saving={saveAdvance.isPending}
+                canDelete={canDelete}
+                notify={notify}
+                onSave={(tx, done) =>
+                  saveAdvance.mutate(tx, {
+                    onSuccess: () => {
+                      notify("Advance saved.");
+                      done();
+                    },
+                    onError: (e) => notify((e as Error).message, "warn"),
+                  })
+                }
+                onDelete={(id) =>
+                  deleteAdvance.mutate(id, {
+                    onSuccess: () => notify("Advance deleted."),
+                    onError: (e) => notify((e as Error).message, "warn"),
+                  })
+                }
+              />
+            )}
+            {tab === "history" && (
+              <HistoryTab employees={employees} batches={batches} advances={advances} />
+            )}
+            {tab === "slips" && <SlipsTab employees={employees} batches={batches} notify={notify} />}
+            {tab === "cost" && <CostTab batches={batches} employees={employees} notify={notify} />}
+            {tab === "audit" && canDelete && <AuditHistoryTab />}
+          </main>
+
+          {tab === "employees" && (
+            <button
+              onClick={() => {
                 setForm(emptyForm);
                 setMode("new");
               }}
-              onSave={async (batch) => {
-                await saveBatch.mutateAsync(batch);
-                notify("Payroll batch saved.");
-              }}
-              onDelete={(id) =>
-                deleteBatch.mutate(id, {
-                  onSuccess: () => notify("Payroll batch deleted."),
-                  onError: (e) => notify((e as Error).message, "warn"),
-                })
-              }
-            />
+              className="mobile-fab"
+              aria-label="New employee"
+            >
+              <Plus size={24} />
+            </button>
           )}
-
-          {tab === "advances" && (
-            <AdvancesTab
-              employees={employees}
-              batches={batches}
-              advances={advances}
-              saving={saveAdvance.isPending}
-              canDelete={canDelete}
-              notify={notify}
-              onSave={(tx, done) =>
-                saveAdvance.mutate(tx, {
-                  onSuccess: () => {
-                    notify("Advance saved.");
-                    done();
-                  },
-                  onError: (e) => notify((e as Error).message, "warn"),
-                })
-              }
-              onDelete={(id) =>
-                deleteAdvance.mutate(id, {
-                  onSuccess: () => notify("Advance deleted."),
-                  onError: (e) => notify((e as Error).message, "warn"),
-                })
-              }
-            />
-          )}
-          {tab === "history" && (
-            <HistoryTab employees={employees} batches={batches} advances={advances} />
-          )}
-          {tab === "slips" && <SlipsTab employees={employees} batches={batches} notify={notify} />}
-          {tab === "cost" && <CostTab batches={batches} employees={employees} notify={notify} />}
-          {tab === "audit" && canDelete && <AuditHistoryTab />}
-        </main>
-
-        {tab === "employees" && (
-          <button
-            onClick={() => {
-              setForm(emptyForm);
-              setMode("new");
-            }}
-            className="mobile-fab"
-            aria-label="New employee"
-          >
-            <Plus size={24} />
-          </button>
-        )}
+        </div>
       </div>
+
+      <CommandDialog open={commandOpen} onOpenChange={setCommandOpen}>
+        <CommandInput placeholder="Type a command or section name…" />
+        <CommandList>
+          <CommandEmpty>No command matches your search.</CommandEmpty>
+          <CommandGroup heading="Navigation">
+            {commandActions.map(({ id, label, description, shortcut, action }) => (
+              <CommandItem
+                key={id}
+                value={`${label} ${description}`}
+                onSelect={() => {
+                  action();
+                  setCommandOpen(false);
+                }}
+              >
+                <Search size={14} />
+                <div className="flex-1">
+                  <div className="text-sm font-semibold text-foreground">{label}</div>
+                  <div className="text-xs text-muted-foreground">{description}</div>
+                </div>
+                <CommandShortcut>{shortcut}</CommandShortcut>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        </CommandList>
+      </CommandDialog>
 
       <EmployeeModal
         mode={mode}
