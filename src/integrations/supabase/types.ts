@@ -61,25 +61,46 @@ export type Database = {
       };
       payroll_batches: {
         Row: {
+          approved_at: string | null;
+          approved_by: string | null;
           created_at: string;
           foreman: string;
           id: string;
+          locked_at: string | null;
+          locked_by: string | null;
           month: string;
+          paid_at: string | null;
+          paid_by: string | null;
           site: string;
+          status: "LEGACY" | "DRAFT" | "REVIEW" | "APPROVED" | "LOCKED" | "PAID";
         };
         Insert: {
+          approved_at?: string | null;
+          approved_by?: string | null;
           created_at?: string;
           foreman?: string;
           id?: string;
+          locked_at?: string | null;
+          locked_by?: string | null;
           month: string;
+          paid_at?: string | null;
+          paid_by?: string | null;
           site?: string;
+          status?: "LEGACY" | "DRAFT" | "REVIEW" | "APPROVED" | "LOCKED" | "PAID";
         };
         Update: {
+          approved_at?: string | null;
+          approved_by?: string | null;
           created_at?: string;
           foreman?: string;
           id?: string;
+          locked_at?: string | null;
+          locked_by?: string | null;
           month?: string;
+          paid_at?: string | null;
+          paid_by?: string | null;
           site?: string;
+          status?: "LEGACY" | "DRAFT" | "REVIEW" | "APPROVED" | "LOCKED" | "PAID";
         };
         Relationships: [];
       };
@@ -87,6 +108,16 @@ export type Database = {
         Row: {
           batch_id: string;
           created_at: string;
+          calculation_version: string | null;
+          regular_hours: number | null;
+          overtime_hours: number | null;
+          regular_pay: number | null;
+          overtime_pay: number | null;
+          allowances: number | null;
+          gross_pay: number | null;
+          deductions: number | null;
+          advance_recovery: number | null;
+          net_pay: number | null;
           employee_id: number;
           food_deduction: number;
           foreman: string;
@@ -103,6 +134,16 @@ export type Database = {
         Insert: {
           batch_id: string;
           created_at?: string;
+          calculation_version?: string | null;
+          regular_hours?: number | null;
+          overtime_hours?: number | null;
+          regular_pay?: number | null;
+          overtime_pay?: number | null;
+          allowances?: number | null;
+          gross_pay?: number | null;
+          deductions?: number | null;
+          advance_recovery?: number | null;
+          net_pay?: number | null;
           employee_id: number;
           food_deduction?: number;
           foreman?: string;
@@ -119,6 +160,16 @@ export type Database = {
         Update: {
           batch_id?: string;
           created_at?: string;
+          calculation_version?: string | null;
+          regular_hours?: number | null;
+          overtime_hours?: number | null;
+          regular_pay?: number | null;
+          overtime_pay?: number | null;
+          allowances?: number | null;
+          gross_pay?: number | null;
+          deductions?: number | null;
+          advance_recovery?: number | null;
+          net_pay?: number | null;
           employee_id?: number;
           food_deduction?: number;
           foreman?: string;
@@ -156,10 +207,14 @@ export type Database = {
           site: string;
           foreman: string;
           work_date: string;
-          in_time: string;
-          out_time: string;
+          status: "PRESENT" | "ABSENT" | "LEAVE" | "HOLIDAY" | "WEEKLY_OFF" | "HALF_DAY";
+          in_time: string | null;
+          out_time: string | null;
           break_hours: number;
-          total_hours: number;
+          total_hours: number | null;
+          regular_hours: number;
+          overtime_hours: number;
+          remarks: string | null;
           created_at: string;
         };
         Insert: {
@@ -168,9 +223,12 @@ export type Database = {
           site: string;
           foreman: string;
           work_date: string;
-          in_time: string;
-          out_time: string;
+          status?: "PRESENT" | "ABSENT" | "LEAVE" | "HOLIDAY" | "WEEKLY_OFF" | "HALF_DAY";
+          in_time: string | null;
+          out_time: string | null;
           break_hours?: number;
+          overtime_hours?: number;
+          remarks?: string | null;
           created_at?: string;
         };
         Update: {
@@ -179,14 +237,86 @@ export type Database = {
           site?: string;
           foreman?: string;
           work_date?: string;
-          in_time?: string;
-          out_time?: string;
+          status?: "PRESENT" | "ABSENT" | "LEAVE" | "HOLIDAY" | "WEEKLY_OFF" | "HALF_DAY";
+          in_time?: string | null;
+          out_time?: string | null;
           break_hours?: number;
+          overtime_hours?: number;
+          remarks?: string | null;
           created_at?: string;
         };
         Relationships: [
           {
             foreignKeyName: "timesheets_employee_id_fkey";
+            columns: ["employee_id"];
+            isOneToOne: false;
+            referencedRelation: "employees";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      payroll_site_allocations: {
+        Row: {
+          id: string;
+          payroll_line_id: string;
+          employee_id: number;
+          month: string;
+          site: string;
+          foreman: string;
+          regular_hours: number;
+          overtime_hours: number;
+          allocated_regular_pay: number;
+          allocated_overtime_pay: number;
+          allocated_allowances: number;
+          allocated_gross_cost: number;
+          allocation_basis: string;
+          calculation_version: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          payroll_line_id: string;
+          employee_id: number;
+          month: string;
+          site: string;
+          foreman?: string;
+          regular_hours?: number;
+          overtime_hours?: number;
+          allocated_regular_pay?: number;
+          allocated_overtime_pay?: number;
+          allocated_allowances?: number;
+          allocated_gross_cost?: number;
+          allocation_basis: string;
+          calculation_version?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          payroll_line_id?: string;
+          employee_id?: number;
+          month?: string;
+          site?: string;
+          foreman?: string;
+          regular_hours?: number;
+          overtime_hours?: number;
+          allocated_regular_pay?: number;
+          allocated_overtime_pay?: number;
+          allocated_allowances?: number;
+          allocated_gross_cost?: number;
+          allocation_basis?: string;
+          calculation_version?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "payroll_site_allocations_payroll_line_id_fkey";
+            columns: ["payroll_line_id"];
+            isOneToOne: false;
+            referencedRelation: "payroll_lines";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "payroll_site_allocations_employee_id_fkey";
             columns: ["employee_id"];
             isOneToOne: false;
             referencedRelation: "employees";
@@ -235,7 +365,10 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      payroll_advance_balances_before: {
+        Args: { target_month: string };
+        Returns: { employee_id: number; balance: number }[];
+      };
     };
     Enums: {
       [_ in never]: never;

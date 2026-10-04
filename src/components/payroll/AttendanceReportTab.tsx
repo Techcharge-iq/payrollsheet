@@ -1,22 +1,23 @@
 import { useMemo, useState } from "react";
 import { CalendarDays, Clock3, MapPin, Users } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
-import type { TimesheetRecord } from "@/lib/payroll-data";
+import { useTimesheetsForMonth } from "@/lib/payroll-data";
 import { currentPayrollMonth, fmt, monthLabel, payrollMonthOptions } from "@/lib/payroll";
 import { card, select } from "./ui";
 
 interface Props {
   employees: Employee[];
-  timesheets: TimesheetRecord[];
-  loading: boolean;
-  error: string;
 }
 
-export function AttendanceReportTab({ employees, timesheets, loading, error }: Props) {
+export function AttendanceReportTab({ employees }: Props) {
   const [filter, setFilter] = useState<"staff" | "site">("staff");
   const [month, setMonth] = useState(currentPayrollMonth);
   const [employeeId, setEmployeeId] = useState("");
   const [site, setSite] = useState("");
+  const timesheetsQuery = useTimesheetsForMonth(month);
+  const timesheets = useMemo(() => timesheetsQuery.data ?? [], [timesheetsQuery.data]);
+  const loading = timesheetsQuery.isLoading;
+  const error = timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : "";
 
   const sites = useMemo(
     () => [...new Set(timesheets.map((entry) => entry.site).filter(Boolean))].sort(),
@@ -55,7 +56,10 @@ export function AttendanceReportTab({ employees, timesheets, loading, error }: P
       { employee: Employee | undefined; days: number; hours: number; foremen: Set<string> }
     >();
     reportRows
-      .filter((entry) => entry.site === site)
+      .filter(
+        (entry) =>
+          entry.site === site && (entry.status === "PRESENT" || entry.status === "HALF_DAY"),
+      )
       .forEach((entry) => {
         const current = grouped.get(entry.employee_id) ?? {
           employee: employees.find((employee) => employee.id === entry.employee_id),
@@ -64,7 +68,7 @@ export function AttendanceReportTab({ employees, timesheets, loading, error }: P
           foremen: new Set<string>(),
         };
         current.days += 1;
-        current.hours += Number(entry.total_hours);
+        current.hours += Number(entry.regular_hours) + Number(entry.overtime_hours);
         current.foremen.add(entry.foreman);
         grouped.set(entry.employee_id, current);
       });
@@ -80,13 +84,15 @@ export function AttendanceReportTab({ employees, timesheets, loading, error }: P
     }),
     { days: 0, hours: 0 },
   );
-  const staffTotals = employeeRows.reduce(
-    (totals, entry) => ({
-      days: totals.days + 1,
-      hours: totals.hours + Number(entry.total_hours),
-    }),
-    { days: 0, hours: 0 },
-  );
+  const staffTotals = employeeRows
+    .filter((entry) => entry.status === "PRESENT" || entry.status === "HALF_DAY")
+    .reduce(
+      (totals, entry) => ({
+        days: totals.days + 1,
+        hours: totals.hours + Number(entry.regular_hours) + Number(entry.overtime_hours),
+      }),
+      { days: 0, hours: 0 },
+    );
 
   return (
     <section className="space-y-4">
@@ -225,6 +231,7 @@ export function AttendanceReportTab({ employees, timesheets, loading, error }: P
                   <thead className="sticky top-0 bg-navy-soft text-[10px] font-bold uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Hours</th>
                       <th className="px-4 py-3">Site</th>
                       <th className="px-4 py-3">Foreman</th>
@@ -240,8 +247,13 @@ export function AttendanceReportTab({ employees, timesheets, loading, error }: P
                             month: "short",
                           })}
                         </td>
+                        <td className="px-4 py-2.5 font-medium">
+                          {entry?.status.replaceAll("_", " ") ?? "—"}
+                        </td>
                         <td className="px-4 py-2.5 font-bold text-navy">
-                          {entry ? fmt(Number(entry.total_hours)) : "—"}
+                          {entry
+                            ? fmt(Number(entry.regular_hours) + Number(entry.overtime_hours))
+                            : "—"}
                         </td>
                         <td className="px-4 py-2.5">
                           {entry?.site ?? <span className="text-slate-300">No attendance</span>}

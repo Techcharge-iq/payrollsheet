@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
+  CheckCircle2,
   Clock3,
   Download,
   Eye,
@@ -20,19 +21,27 @@ import {
 import {
   computeNet,
   fmt,
-  advanceCarryForward,
+  advanceCarryForwardFromBalance,
+  calculatePayroll,
   currentPayrollMonth,
   lineGross,
   lockedEmployeeIds,
   monthLabel,
   payrollMonthOptions,
+  PAYROLL_POLICY,
+  PAYROLL_CALCULATION_VERSION,
+  type PayrollBatchStatus,
   toNum,
   type AdvanceTx,
   type Employee,
   type PayrollBatch,
   type PayrollLine,
 } from "@/lib/payroll";
-import type { TimesheetRecord } from "@/lib/payroll-data";
+import {
+  useBatches,
+  usePayrollAdvanceBalancesBefore,
+  useTimesheetsForMonth,
+} from "@/lib/payroll-data";
 import { downloadPayrollImportTemplate, readPayrollImport } from "@/lib/payroll-excel";
 import {
   Dialog,
@@ -45,13 +54,10 @@ import { btnGold, btnIcon, btnOutline, btnPrimary, card, input, inputSm, select 
 
 interface Props {
   employees: Employee[];
-  batches: PayrollBatch[];
   advances: AdvanceTx[];
-  timesheets: TimesheetRecord[];
-  timesheetsLoading: boolean;
-  timesheetsError: string;
   onSave: (batch: PayrollBatch) => Promise<void>;
   onDelete: (id: string) => void;
+  onStatus: (id: string, status: PayrollBatchStatus) => Promise<void>;
   canDelete: boolean;
   saving: boolean;
   notify: (msg: string, tone?: "ok" | "warn") => void;
@@ -342,8 +348,7 @@ function validateBatch(
   draft: PayrollBatch,
   month: string,
   employees: Employee[],
-  batches: PayrollBatch[],
-  advances: AdvanceTx[],
+  carryForward: (employeeId: number | string) => number,
   locked: Set<string>,
 ) {
   const errors: string[] = [];
@@ -365,6 +370,14 @@ function validateBatch(
     const employeeId = String(line.employee_id);
     const employee = employees.find((item) => String(item.id) === employeeId);
     if (!employee) errors.push(`Line ${row}: the selected employee no longer exists.`);
+    else {
+      if (employee.status !== "Active") {
+        errors.push(`Line ${row}: ${employee.name} is not active.`);
+      }
+      if (toNum(line.rate) <= 0) {
+        errors.push(`Line ${row}: employee payroll rate must be greater than zero.`);
+      }
+    }
     if (selectedIds.has(employeeId)) {
       errors.push(`Line ${row}: this employee is listed more than once.`);
     }
@@ -393,12 +406,14 @@ function validateBatch(
     const deductions =
       toNum(line.food_deduction) + toNum(line.prev_advance) + toNum(line.other_deduction);
     if (deductions > gross + 0.001) errors.push(`Line ${row}: deductions exceed gross pay.`);
+    if (toNum(line.overtime_hours) > 0 && PAYROLL_POLICY.overtimeMultiplier === null) {
+      errors.push(`Line ${row}: configure the overtime multiplier before saving overtime pay.`);
+    }
     if (toNum(line.paid) > toNum(line.net_salary) + 0.001) {
       errors.push(`Line ${row}: paid amount exceeds net salary.`);
     }
     if (employee) {
-      const availableAdvance =
-        advanceCarryForward(employee.id, month, batches, advances) + toNum(line.new_advance);
+      const availableAdvance = carryForward(employee.id) + toNum(line.new_advance);
       if (toNum(line.prev_advance) > availableAdvance + 0.001) {
         errors.push(`Line ${row}: previous advance deduction exceeds the outstanding advance.`);
       }
@@ -411,19 +426,41 @@ function validateBatch(
 
 export function PayrollTab({
   employees,
-  batches,
   advances,
-  timesheets,
-  timesheetsLoading,
-  timesheetsError,
   onSave,
   onDelete,
+  onStatus,
   canDelete,
   saving,
   notify,
   onNewEmployee,
 }: Props) {
   const [month, setMonth] = useState(currentPayrollMonth);
+  const timesheetsQuery = useTimesheetsForMonth(month);
+  const timesheets = useMemo(() => timesheetsQuery.data ?? [], [timesheetsQuery.data]);
+  const timesheetsLoading = timesheetsQuery.isLoading;
+  const timesheetsError =
+    timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : "";
+  const batchesQuery = useBatches(month);
+  const batches = useMemo(() => batchesQuery.data ?? [], [batchesQuery.data]);
+  const advanceBalancesQuery = usePayrollAdvanceBalancesBefore(month);
+  const historicalAdvanceBalances = useMemo(
+    () =>
+      new Map(
+        (advanceBalancesQuery.data ?? []).map((entry) => [entry.employee_id, entry.balance]),
+      ),
+    [advanceBalancesQuery.data],
+  );
+  const carryForward = useCallback(
+    (employeeId: number | string) =>
+      advanceCarryForwardFromBalance(
+        employeeId,
+        month,
+        historicalAdvanceBalances.get(Number(employeeId)) ?? 0,
+        advances,
+      ),
+    [advances, historicalAdvanceBalances, month],
+  );
   const [draft, setDraft] = useState<PayrollBatch | null>(null);
   const [viewingBatch, setViewingBatch] = useState<PayrollBatch | null>(null);
   const [foremanLine, setForemanLine] = useState<number | null>(null);
@@ -467,10 +504,23 @@ export function PayrollTab({
   const startNew = () => {
     setImportErrors([]);
     setSubmitError("");
-    setDraft({ id: "", month, site: "", foreman: "", lines: [emptyLine()] });
+    setDraft({ id: "", month, site: "", foreman: "", status: "DRAFT", lines: [emptyLine()] });
   };
 
   const generateFromTimesheets = () => {
+    if (batchesQuery.error || advanceBalancesQuery.error) {
+      notify(
+        `Could not load payroll safeguards: ${
+          (batchesQuery.error ?? advanceBalancesQuery.error)?.message ?? "Unknown error"
+        }`,
+        "warn",
+      );
+      return;
+    }
+    if (batchesQuery.isLoading || advanceBalancesQuery.isLoading) {
+      notify("Payroll safeguards are still loading. Try again in a moment.", "warn");
+      return;
+    }
     if (timesheetsError) {
       notify(`Could not load timesheets: ${timesheetsError}`, "warn");
       return;
@@ -485,16 +535,25 @@ export function PayrollTab({
       return;
     }
 
-    const totals = new Map<number, { hours: number; foremen: Set<string> }>();
+    const totals = new Map<
+      number,
+      { regularHours: number; overtimeHours: number; foremen: Set<string> }
+    >();
     monthlyEntries.forEach((entry) => {
-      const total = totals.get(entry.employee_id) ?? { hours: 0, foremen: new Set<string>() };
-      total.hours += Number(entry.total_hours);
+      const total = totals.get(entry.employee_id) ?? {
+        regularHours: 0,
+        overtimeHours: 0,
+        foremen: new Set<string>(),
+      };
+      total.regularHours += Number(entry.regular_hours);
+      total.overtimeHours += Number(entry.overtime_hours);
       total.foremen.add(entry.foreman);
       totals.set(entry.employee_id, total);
     });
 
     let skipped = 0;
     const lines: PayrollLine[] = [];
+    const inactive: string[] = [];
     totals.forEach((total, employeeId) => {
       if (locked.has(String(employeeId))) {
         skipped += 1;
@@ -505,24 +564,72 @@ export function PayrollTab({
         skipped += 1;
         return;
       }
+      if (employee.status !== "Active") {
+        inactive.push(employee.name);
+        return;
+      }
+      if (!(employee.hourly_rate > 0)) {
+        inactive.push(`${employee.name} (missing hourly rate)`);
+        return;
+      }
+      if (total.overtimeHours > 0 && PAYROLL_POLICY.overtimeMultiplier === null) {
+        return;
+      }
+      const outstanding = carryForward(employee.id);
+      const calculation = calculatePayroll({
+        regularHours: total.regularHours,
+        overtimeHours: total.overtimeHours,
+        rate: employee.hourly_rate,
+        allowances: 0,
+        deductions: 0,
+        advanceRecovery: 0,
+        policy: PAYROLL_POLICY,
+      });
+      const advanceRecovery = Math.min(outstanding, calculation.grossPay);
+      const finalCalculation = calculatePayroll({
+        regularHours: total.regularHours,
+        overtimeHours: total.overtimeHours,
+        rate: employee.hourly_rate,
+        allowances: 0,
+        deductions: 0,
+        advanceRecovery,
+        policy: PAYROLL_POLICY,
+      });
       const line: PayrollLine = {
         employee_id: employee.id,
         foreman: total.foremen.size === 1 ? [...total.foremen][0]! : "Multiple foremen",
-        hours: Number(total.hours.toFixed(3)),
+        hours: Number((total.regularHours + total.overtimeHours).toFixed(3)),
         rate: employee.hourly_rate,
         food_deduction: 0,
-        prev_advance: Math.min(
-          advanceCarryForward(employee.id, month, batches, advances),
-          total.hours * employee.hourly_rate,
-        ),
+        prev_advance: advanceRecovery,
         new_advance: 0,
         other_deduction: 0,
-        net_salary: 0,
+        net_salary: finalCalculation.netPay,
         paid: 0,
+        calculation_version: PAYROLL_CALCULATION_VERSION,
+        regular_hours: finalCalculation.regularHours,
+        overtime_hours: finalCalculation.overtimeHours,
+        regular_pay: finalCalculation.regularPay,
+        overtime_pay: finalCalculation.overtimePay,
+        allowances: finalCalculation.allowances,
+        gross_pay: finalCalculation.grossPay,
+        deductions: finalCalculation.deductions,
+        advance_recovery: finalCalculation.advanceRecovery,
+        net_pay: finalCalculation.netPay,
       };
-      line.net_salary = computeNet(line);
       lines.push(line);
     });
+
+    const blockedByOvertimePolicy = [...totals.values()].some(
+      (total) => total.overtimeHours > 0 && PAYROLL_POLICY.overtimeMultiplier === null,
+    );
+    if (blockedByOvertimePolicy) {
+      notify(
+        "Payroll was not generated because attendance includes overtime and no overtime multiplier is configured.",
+        "warn",
+      );
+      return;
+    }
 
     if (!lines.length) {
       notify(
@@ -534,16 +641,23 @@ export function PayrollTab({
 
     setImportErrors([]);
     setSubmitError("");
-    setDraft({ id: "", month, site: "Multiple sites", foreman: "", lines });
+    const missingAttendance = employees.filter(
+      (employee) => employee.status === "Active" && !totals.has(employee.id),
+    ).length;
+    setDraft({ id: "", month, site: "Multiple sites", foreman: "", status: "DRAFT", lines });
     notify(
-      `${lines.length} employee payroll line(s) generated for review.${skipped ? ` ${skipped} already-paid or unavailable employee(s) skipped.` : ""}`,
-      skipped ? "warn" : "ok",
+      `${lines.length} employee payroll line(s) generated for review.${skipped ? ` ${skipped} already included or unavailable employee(s) skipped.` : ""}${missingAttendance ? ` ${missingAttendance} active employee(s) had no recorded attendance and were not added.` : ""}${inactive.length ? ` ${inactive.length} inactive or unconfigured employee(s) need review.` : ""}`,
+      skipped || missingAttendance > 0 || inactive.length > 0 ? "warn" : "ok",
     );
   };
 
   const startEdit = (batch: PayrollBatch) => {
     setImportErrors([]);
     setSubmitError("");
+    if (!["DRAFT", "REVIEW"].includes(batch.status)) {
+      notify(`Payroll batch in ${batch.status} status cannot be edited.`, "warn");
+      return;
+    }
     setDraft(batch);
   };
 
@@ -555,8 +669,8 @@ export function PayrollTab({
   };
 
   const validationErrors = useMemo(
-    () => (draft ? validateBatch(draft, month, employees, batches, advances, locked) : []),
-    [draft, month, employees, batches, advances, locked],
+    () => (draft ? validateBatch(draft, month, employees, carryForward, locked) : []),
+    [draft, month, employees, carryForward, locked],
   );
 
   const importFile = async (file: File) => {
@@ -661,7 +775,7 @@ export function PayrollTab({
           prev_advance:
             values["previousadvance"] || values["prevadvance"] || values["prevadv"]
               ? previousAdvance
-              : advanceCarryForward(employee.id, month, batches, advances),
+              : carryForward(employee.id),
           new_advance: newAdvance,
           other_deduction: otherDeduction,
           net_salary: 0,
@@ -711,7 +825,37 @@ export function PayrollTab({
       const lines = d.lines.map((l, i) => {
         if (i !== idx) return l;
         const next = { ...l, ...patch };
-        next.net_salary = computeNet(next);
+        if (next.calculation_version) {
+          const overtimeHours = toNum(next.overtime_hours);
+          const regularHours =
+            patch.hours !== undefined
+              ? Math.max(0, toNum(next.hours) - overtimeHours)
+              : toNum(next.regular_hours);
+          const calculation = calculatePayroll({
+            regularHours,
+            overtimeHours,
+            rate: toNum(next.rate),
+            allowances: toNum(next.allowances),
+            deductions: toNum(next.food_deduction) + toNum(next.other_deduction),
+            advanceRecovery: toNum(next.prev_advance),
+            policy: PAYROLL_POLICY,
+          });
+          Object.assign(next, {
+            hours: calculation.regularHours + calculation.overtimeHours,
+            regular_hours: calculation.regularHours,
+            overtime_hours: calculation.overtimeHours,
+            regular_pay: calculation.regularPay,
+            overtime_pay: calculation.overtimePay,
+            allowances: calculation.allowances,
+            gross_pay: calculation.grossPay,
+            deductions: calculation.deductions,
+            advance_recovery: calculation.advanceRecovery,
+            net_pay: calculation.netPay,
+            net_salary: calculation.netPay,
+          });
+        } else {
+          next.net_salary = computeNet(next);
+        }
         return next;
       });
       return { ...d, lines };
@@ -731,7 +875,7 @@ export function PayrollTab({
     setLine(idx, {
       employee_id: value ? Number(value) : "",
       rate: emp ? emp.hourly_rate : "",
-      prev_advance: emp ? advanceCarryForward(emp.id, month, batches, advances) : "",
+      prev_advance: emp ? carryForward(emp.id) : "",
     });
   };
 
@@ -757,6 +901,18 @@ export function PayrollTab({
       setImportErrors([]);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Could not save payroll batch.");
+    }
+  };
+
+  const changeStatus = async (batch: PayrollBatch, status: PayrollBatchStatus) => {
+    try {
+      await onStatus(batch.id, status);
+      notify(`Payroll batch status changed to ${status}.`);
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "Could not change payroll batch status.",
+        "warn",
+      );
     }
   };
 
@@ -934,7 +1090,7 @@ export function PayrollTab({
                   <tbody>
                     {draft.lines.map((l, idx) => {
                       const carry = l.employee_id
-                        ? advanceCarryForward(l.employee_id, month, batches, advances)
+                        ? carryForward(l.employee_id)
                         : 0;
                       return (
                         <tr key={idx} className="border-b border-border align-top last:border-0">
@@ -1349,7 +1505,8 @@ export function PayrollTab({
               <div className="flex-1">
                 <p className="text-sm font-bold text-navy">{b.site || "Unnamed site"}</p>
                 <p className="text-xs text-muted-foreground">
-                  Foreman {b.foreman || "—"} · {b.lines.length} employees · {monthLabel(b.month)}
+                  Foreman {b.foreman || "—"} · {b.lines.length} employees · {monthLabel(b.month)} ·{" "}
+                  {b.status}
                 </p>
               </div>
               <div className="text-right">
@@ -1366,10 +1523,57 @@ export function PayrollTab({
               >
                 <Eye size={14} /> View
               </button>
-              <button onClick={() => startEdit(b)} className={btnPrimary}>
-                <Pencil size={14} /> Edit
-              </button>
-              {canDelete && (
+              {["DRAFT", "REVIEW"].includes(b.status) && (
+                <button onClick={() => startEdit(b)} className={btnPrimary}>
+                  <Pencil size={14} /> Edit
+                </button>
+              )}
+              {canDelete && b.status === "DRAFT" && (
+                <button
+                  type="button"
+                  onClick={() => void changeStatus(b, "REVIEW")}
+                  className={btnOutline}
+                >
+                  <CheckCircle2 size={14} /> Submit review
+                </button>
+              )}
+              {canDelete && b.status === "REVIEW" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void changeStatus(b, "DRAFT")}
+                    className={btnOutline}
+                  >
+                    Return to draft
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void changeStatus(b, "APPROVED")}
+                    className={btnPrimary}
+                  >
+                    Approve
+                  </button>
+                </>
+              )}
+              {canDelete && b.status === "APPROVED" && (
+                <button
+                  type="button"
+                  onClick={() => void changeStatus(b, "LOCKED")}
+                  className={btnPrimary}
+                >
+                  <Lock size={14} /> Lock
+                </button>
+              )}
+              {canDelete && b.status === "LOCKED" && (
+                <button
+                  type="button"
+                  onClick={() => void changeStatus(b, "PAID")}
+                  className={btnPrimary}
+                >
+                  Mark paid
+                </button>
+              )}
+              {canDelete && ["DRAFT", "REVIEW"].includes(b.status) && (
                 <button
                   onClick={() => onDelete(b.id)}
                   className={btnOutline + " hover:border-danger hover:text-danger"}

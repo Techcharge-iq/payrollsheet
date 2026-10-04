@@ -1,29 +1,28 @@
 import { useMemo, useState } from "react";
 import { ChevronRight, List, MapPin, Users } from "lucide-react";
-import {
-  currentPayrollMonth,
-  fmt,
-  monthLabel,
-  payrollMonthOptions,
-  toNum,
-  type Employee,
-  type PayrollBatch,
-} from "@/lib/payroll";
+import { currentPayrollMonth, fmt, type Employee } from "@/lib/payroll";
 import { btnGold, card, select } from "./ui";
 import { CostDetailsModal } from "./CostDetailsModal";
+import { usePayrollSiteAllocations } from "@/lib/payroll-data";
+import { allocationTotals, buildAllocationRows } from "@/lib/cost-allocation";
 
 type GroupBy = "site" | "foreman" | "site+foreman";
 
 interface Props {
-  batches: PayrollBatch[];
   employees: Employee[];
   notify?: (msg: string, tone?: "ok" | "warn") => void;
 }
 
-export function CostTab({ batches, employees, notify }: Props) {
+export function CostTab({ employees, notify }: Props) {
   const [groupBy, setGroupBy] = useState<GroupBy>("site");
   const [filterMonth, setFilterMonth] = useState(currentPayrollMonth);
   const [listOpen, setListOpen] = useState(false);
+  const allocationsQuery = usePayrollSiteAllocations(filterMonth);
+  const allocationRows = useMemo(
+    () => buildAllocationRows(allocationsQuery.data ?? [], employees),
+    [allocationsQuery.data, employees],
+  );
+  const totals = useMemo(() => allocationTotals(allocationRows), [allocationRows]);
 
   const costRows = useMemo(() => {
     const buckets: Record<
@@ -31,66 +30,55 @@ export function CostTab({ batches, employees, notify }: Props) {
       {
         label: string;
         workers: Set<string>;
-        net: number;
-        paid: number;
+        gross: number;
+        regularHours: number;
+        overtimeHours: number;
       }
     > = {};
-    batches
-      .filter((b) => !filterMonth || b.month === filterMonth)
-      .forEach((b) => {
-        b.lines.forEach((l) => {
-          if (!l.employee_id) return;
-          const foreman = l.foreman || b.foreman || "(No Foreman)";
-          const key =
-            groupBy === "site"
-              ? b.site || "(No Site)"
-              : groupBy === "foreman"
-                ? foreman
-                : `${b.site || "(No Site)"} / ${foreman}`;
-          buckets[key] ??= {
-            label: key,
-            workers: new Set(),
-            net: 0,
-            paid: 0,
-          };
-          const bucket = buckets[key];
-          bucket.workers.add(String(l.employee_id));
-          bucket.net += toNum(l.net_salary);
-          bucket.paid += toNum(l.paid);
-        });
-      });
+    allocationRows.forEach((allocation) => {
+      const key =
+        groupBy === "site"
+          ? allocation.site
+          : groupBy === "foreman"
+            ? allocation.foreman
+            : `${allocation.site} / ${allocation.foreman}`;
+      buckets[key] ??= {
+        label: key,
+        workers: new Set(),
+        gross: 0,
+        regularHours: 0,
+        overtimeHours: 0,
+      };
+      const bucket = buckets[key];
+      bucket.workers.add(allocation.employeeId);
+      bucket.gross += allocation.grossCost;
+      bucket.regularHours += allocation.regularHours;
+      bucket.overtimeHours += allocation.overtimeHours;
+    });
     return Object.values(buckets)
       .map((b) => ({ ...b, workers: b.workers.size }))
-      .sort((a, b) => b.net - a.net);
-  }, [batches, filterMonth, groupBy]);
+      .sort((a, b) => b.gross - a.gross);
+  }, [allocationRows, groupBy]);
 
   const grand = useMemo(() => {
-    const workers = new Set<string>();
-    batches
-      .filter((b) => !filterMonth || b.month === filterMonth)
-      .forEach((b) => b.lines.forEach((l) => l.employee_id && workers.add(String(l.employee_id))));
     return {
-      workers: workers.size,
-      net: costRows.reduce((s, r) => s + r.net, 0),
-      paid: costRows.reduce((s, r) => s + r.paid, 0),
+      workers: totals.staff,
+      gross: totals.grossCost,
+      regularHours: totals.regularHours,
+      overtimeHours: totals.overtimeHours,
     };
-  }, [batches, costRows, filterMonth]);
+  }, [totals]);
 
   return (
     <div className="space-y-4">
       <div className={card + " mobile-toolbar flex flex-wrap items-center gap-3 p-4"}>
-        <select
+        <input
+          type="month"
           value={filterMonth}
           onChange={(e) => setFilterMonth(e.target.value)}
           className={select + " sm:w-56"}
-        >
-          <option value="">All months</option>
-          {payrollMonthOptions().map((m) => (
-            <option key={m} value={m}>
-              {monthLabel(m)}
-            </option>
-          ))}
-        </select>
+          aria-label="Payroll month"
+        />
         <div className="flex overflow-hidden rounded-lg border border-slate-300 text-sm">
           {(
             [
@@ -116,14 +104,15 @@ export function CostTab({ batches, employees, notify }: Props) {
           <List size={15} /> View List
         </button>
         <p className="w-full text-xs text-muted-foreground lg:w-auto">
-          Cost is allocated per line (hours × rate) — no double counting across foremen or sites.
+          Gross labour cost is allocated by actual attendance hours. Advances and employee
+          deductions are excluded; historical payroll without verified attendance allocation is not
+          estimated.
         </p>
       </div>
 
       <CostDetailsModal
         open={listOpen}
         onClose={() => setListOpen(false)}
-        batches={batches}
         employees={employees}
         month={filterMonth}
         notify={notify}
@@ -132,9 +121,9 @@ export function CostTab({ batches, employees, notify }: Props) {
       <div className="mobile-metric-grid grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
           { label: "Unique workers", value: String(grand.workers) },
-          { label: "Total net salary (OMR)", value: fmt(grand.net), money: true },
-          { label: "Total paid (OMR)", value: fmt(grand.paid), money: true },
-          { label: "Total remaining (OMR)", value: fmt(grand.net - grand.paid), money: true },
+          { label: "Allocated gross labour cost (OMR)", value: fmt(grand.gross), money: true },
+          { label: "Regular hours", value: fmt(grand.regularHours) },
+          { label: "Overtime hours", value: fmt(grand.overtimeHours) },
         ].map((s) => (
           <div
             key={s.label}
@@ -172,16 +161,16 @@ export function CostTab({ batches, employees, notify }: Props) {
                 </p>
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   <span className="data-badge">
-                    <small>Net</small>
-                    {fmt(row.net)}
-                  </span>
-                  <span className="data-badge data-badge-paid">
-                    <small>Paid</small>
-                    {fmt(row.paid)}
+                    <small>Regular hrs</small>
+                    {fmt(row.regularHours)}
                   </span>
                   <span className="data-badge data-badge-due">
-                    <small>Due</small>
-                    {fmt(row.net - row.paid)}
+                    <small>OT hrs</small>
+                    {fmt(row.overtimeHours)}
+                  </span>
+                  <span className="data-badge data-badge-paid">
+                    <small>Gross cost</small>
+                    {fmt(row.gross)}
                   </span>
                 </div>
               </div>
@@ -197,16 +186,20 @@ export function CostTab({ batches, employees, notify }: Props) {
               <tr className="border-b border-border bg-navy-soft text-left text-[11px] font-bold uppercase tracking-wide text-slate-600">
                 <th className="px-4 py-3">Site</th>
                 <th className="px-4 py-3 text-right">Workers</th>
-                <th className="px-4 py-3 text-right">Net salary (OMR)</th>
-                <th className="px-4 py-3 text-right">Paid</th>
-                <th className="px-4 py-3 text-right">Remaining</th>
+                <th className="px-4 py-3 text-right">Regular hours</th>
+                <th className="px-4 py-3 text-right">Overtime hours</th>
+                <th className="px-4 py-3 text-right">Gross labour cost (OMR)</th>
               </tr>
             </thead>
             <tbody>
               {costRows.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
-                    No payroll data for the selected period.
+                    {allocationsQuery.isLoading
+                      ? "Loading verified site allocations…"
+                      : allocationsQuery.error
+                        ? `Could not load site allocations: ${allocationsQuery.error.message}`
+                        : "No verified attendance-based allocations for the selected month."}
                   </td>
                 </tr>
               ) : (
@@ -218,10 +211,14 @@ export function CostTab({ batches, employees, notify }: Props) {
                     >
                       <td className="px-4 py-2.5 font-medium text-foreground">{r.label}</td>
                       <td className="px-4 py-2.5 text-right text-slate-600">{r.workers}</td>
-                      <td className="px-4 py-2.5 text-right font-bold text-money">{fmt(r.net)}</td>
-                      <td className="px-4 py-2.5 text-right text-slate-600">{fmt(r.paid)}</td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-navy">
-                        {fmt(r.net - r.paid)}
+                      <td className="px-4 py-2.5 text-right text-slate-600">
+                        {fmt(r.regularHours)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-slate-600">
+                        {fmt(r.overtimeHours)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-bold text-money">
+                        {fmt(r.gross)}
                       </td>
                     </tr>
                   );
@@ -233,9 +230,9 @@ export function CostTab({ batches, employees, notify }: Props) {
                 <tr className="border-t-2 border-slate-300 bg-navy-soft/70 font-bold text-navy">
                   <td className="px-4 py-2.5">TOTAL</td>
                   <td className="px-4 py-2.5 text-right">{grand.workers}</td>
-                  <td className="px-4 py-2.5 text-right text-money">{fmt(grand.net)}</td>
-                  <td className="px-4 py-2.5 text-right">{fmt(grand.paid)}</td>
-                  <td className="px-4 py-2.5 text-right">{fmt(grand.net - grand.paid)}</td>
+                  <td className="px-4 py-2.5 text-right">{fmt(grand.regularHours)}</td>
+                  <td className="px-4 py-2.5 text-right">{fmt(grand.overtimeHours)}</td>
+                  <td className="px-4 py-2.5 text-right text-money">{fmt(grand.gross)}</td>
                 </tr>
               </tfoot>
             )}

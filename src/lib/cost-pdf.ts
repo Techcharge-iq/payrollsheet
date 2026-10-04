@@ -41,17 +41,16 @@ function buildDoc(rows: AllocationRow[], meta: CostReportMeta) {
     ["Emp ID", 18, "l"],
     ["Employee", 30, "l"],
     ["Trade", 18, "l"],
-    ["Site", 23, "l"],
-    ["Foreman", 22, "l"],
+    ["Site", 22, "l"],
+    ["Foreman", 20, "l"],
     ["Month", 17, "l"],
-    ["Hrs", 12, "r"],
-    ["Basic", 19, "r"],
-    ["Food Deduct.", 20, "r"],
-    ["Prev. adv.", 20, "r"],
-    ["Outstanding", 20, "r"],
-    ["Total", 19, "r"],
-    ["Allocated", 20, "r"],
-    ["Remaining", 18, "r"],
+    ["Reg hrs", 14, "r"],
+    ["OT hrs", 14, "r"],
+    ["Reg pay", 20, "r"],
+    ["OT pay", 20, "r"],
+    ["Allowances", 20, "r"],
+    ["Gross cost", 20, "r"],
+    ["Basis", 28, "l"],
   ];
 
   const drawHead = (y: number) => {
@@ -94,14 +93,13 @@ function buildDoc(rows: AllocationRow[], meta: CostReportMeta) {
       r.site,
       r.foreman,
       r.month,
-      fmt(r.hours),
-      fmt(r.basic),
-      fmt(r.foodDeduction),
-      fmt(r.previousAdvance),
-      fmt(r.outstanding),
-      fmt(r.total),
-      fmt(r.allocated),
-      fmt(r.remaining),
+      fmt(r.regularHours),
+      fmt(r.overtimeHours),
+      fmt(r.allocatedRegularPay),
+      fmt(r.allocatedOvertimePay),
+      fmt(r.allocatedAllowances),
+      fmt(r.grossCost),
+      r.allocationBasis,
     ];
     let x = L + 2;
     values.forEach((v, ci) => {
@@ -128,11 +126,11 @@ function buildDoc(rows: AllocationRow[], meta: CostReportMeta) {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
   doc.text(
-    `Total staff: ${t.staff}    Total hours: ${fmt(rows.reduce((sum, row) => sum + row.hours, 0))}    Previous advance: ${fmt(
-      t.previousAdvance,
-    )} OMR    Total salary: ${fmt(
-      t.total,
-    )} OMR    Total allocated: ${fmt(t.allocated)} OMR    Remaining: ${fmt(t.remaining)} OMR`,
+    `Total staff: ${t.staff}    Regular hours: ${fmt(
+      t.regularHours,
+    )}    Overtime hours: ${fmt(t.overtimeHours)}    Allocated gross labour cost: ${fmt(
+      t.grossCost,
+    )} OMR`,
     L,
     y,
   );

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -57,9 +57,15 @@ import {
   useSaveAdvance,
   useDeleteAdvance,
   useSaveTimesheets,
-  useTimesheets,
+  useUpdateBatchStatus,
 } from "@/lib/payroll-data";
-import type { AdvanceTx, Employee, EmployeeStatus, PayrollBatch } from "@/lib/payroll";
+import type {
+  AdvanceTx,
+  Employee,
+  EmployeeStatus,
+  PayrollBatch,
+  PayrollBatchStatus,
+} from "@/lib/payroll";
 import { db } from "@/integrations/supabase/external-client";
 
 const TITLE = "Site Payroll Manager — Wages, Advances & Salary Slips";
@@ -207,15 +213,17 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "warn" } | null>(null);
   const [registeringPasskey, setRegisteringPasskey] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  const attendanceDirtyRef = useRef(false);
 
   const employeesQuery = useEmployees();
-  const batchesQuery = useBatches();
+  const needsPayrollHistory = ["history", "slips", "advances"].includes(tab) || mode !== null;
+  const batchesQuery = useBatches(undefined, needsPayrollHistory);
   const saveEmployee = useSaveEmployee();
   const canDelete = role === "admin";
   const saveBatch = useSaveBatch(canDelete);
+  const updateBatchStatus = useUpdateBatchStatus();
   const deleteBatch = useDeleteBatch();
   const advancesQuery = useAdvances();
-  const timesheetsQuery = useTimesheets();
   const saveTimesheets = useSaveTimesheets();
   const saveAdvance = useSaveAdvance();
   const deleteAdvance = useDeleteAdvance();
@@ -223,9 +231,23 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
   const employees: Employee[] = employeesQuery.data ?? [];
   const batches: PayrollBatch[] = batchesQuery.data ?? [];
   const advances: AdvanceTx[] = advancesQuery.data ?? [];
-  const timesheets = timesheetsQuery.data ?? [];
 
   const notify = (msg: string, tone: "ok" | "warn" = "ok") => setToast({ msg, tone });
+  const navigateToTab = useCallback(
+    (nextTab: TabId) => {
+      if (
+        tab === "timesheets" &&
+        nextTab !== tab &&
+        attendanceDirtyRef.current &&
+        !window.confirm("Discard unsaved attendance changes?")
+      ) {
+        return;
+      }
+      attendanceDirtyRef.current = false;
+      setTab(nextTab);
+    },
+    [tab],
+  );
 
   const addPasskey = async () => {
     setRegisteringPasskey(true);
@@ -288,8 +310,7 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
     );
   };
 
-  const error =
-    employeesQuery.error ?? batchesQuery.error ?? advancesQuery.error ?? timesheetsQuery.error;
+  const error = employeesQuery.error ?? batchesQuery.error ?? advancesQuery.error;
   const mobileTabs: Array<{
     id: TabId | "home";
     label: string;
@@ -317,7 +338,7 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
         action: () => {
           setForm(emptyForm);
           setMode("new");
-          setTab("employees");
+          navigateToTab("employees");
         },
       },
       {
@@ -325,56 +346,56 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
         label: "Open employees",
         description: "Review the employee master list",
         shortcut: "E",
-        action: () => setTab("employees"),
+        action: () => navigateToTab("employees"),
       },
       {
         id: "payroll",
         label: "Open payroll",
         description: "Manage monthly payroll batches",
         shortcut: "P",
-        action: () => setTab("payroll"),
+        action: () => navigateToTab("payroll"),
       },
       {
         id: "timesheets",
         label: "Open timesheets",
         description: "Review daily attendance entries",
         shortcut: "T",
-        action: () => setTab("timesheets"),
+        action: () => navigateToTab("timesheets"),
       },
       {
         id: "attendance",
         label: "Open attendance report",
         description: "View labor and attendance metrics",
         shortcut: "A",
-        action: () => setTab("attendance"),
+        action: () => navigateToTab("attendance"),
       },
       {
         id: "advances",
         label: "Open advances",
         description: "Track outstanding employee advances",
         shortcut: "V",
-        action: () => setTab("advances"),
+        action: () => navigateToTab("advances"),
       },
       {
         id: "history",
         label: "Open history",
         description: "See employee payroll history and balances",
         shortcut: "H",
-        action: () => setTab("history"),
+        action: () => navigateToTab("history"),
       },
       {
         id: "slips",
         label: "Open salary slips",
         description: "Generate and download payslips",
         shortcut: "S",
-        action: () => setTab("slips"),
+        action: () => navigateToTab("slips"),
       },
       {
         id: "cost",
         label: "Open cost allocation",
         description: "Review labour and site cost reporting",
         shortcut: "C",
-        action: () => setTab("cost"),
+        action: () => navigateToTab("cost"),
       },
       ...(canDelete
         ? [
@@ -383,12 +404,12 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
               label: "Open audit log",
               description: "Review payroll changes and transactions",
               shortcut: "L",
-              action: () => setTab("audit"),
+              action: () => navigateToTab("audit"),
             },
           ]
         : []),
     ],
-    [canDelete],
+    [canDelete, navigateToTab],
   );
 
   useEffect(() => {
@@ -429,7 +450,7 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
               ({ id, label, icon: Icon }) => (
                 <button
                   key={id}
-                  onClick={() => setTab(id)}
+                  onClick={() => navigateToTab(id)}
                   className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
                     tab === id
                       ? "bg-navy text-primary-foreground shadow-sm"
@@ -517,7 +538,7 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
               ({ id, label, icon: Icon }) => (
                 <button
                   key={id}
-                  onClick={() => setTab(id)}
+                  onClick={() => navigateToTab(id)}
                   className={`flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
                     tab === id
                       ? "bg-navy text-primary-foreground shadow-sm"
@@ -539,7 +560,7 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
                 return (
                   <button
                     key={id}
-                    onClick={() => setTab(id === "home" ? "history" : id)}
+                    onClick={() => navigateToTab(id === "home" ? "history" : id)}
                     aria-current={active ? "page" : undefined}
                     className={`mobile-bottom-tab ${active ? "is-active" : ""}`}
                   >
@@ -559,23 +580,16 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
           {tab === "timesheets" && (
             <TimesheetsTab
               employees={employees}
-              timesheets={timesheets}
-              loading={employeesQuery.isLoading}
-              error={timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : ""}
               saving={saveTimesheets.isPending}
               onSave={(rows) => saveTimesheets.mutateAsync(rows)}
               notify={notify}
+              onDirtyChange={(dirty) => {
+                attendanceDirtyRef.current = dirty;
+              }}
             />
           )}
 
-          {tab === "attendance" && (
-            <AttendanceReportTab
-              employees={employees}
-              timesheets={timesheets}
-              loading={employeesQuery.isLoading || timesheetsQuery.isLoading}
-              error={timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : ""}
-            />
-          )}
+          {tab === "attendance" && <AttendanceReportTab employees={employees} />}
 
           {showHome && (
             <div
@@ -584,7 +598,7 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
             >
               <button
                 type="button"
-                onClick={() => setTab("history")}
+                onClick={() => navigateToTab("history")}
                 aria-current={tab === "history" ? "page" : undefined}
                 className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
                   tab === "history"
@@ -596,7 +610,7 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
               </button>
               <button
                 type="button"
-                onClick={() => setTab("slips")}
+                onClick={() => navigateToTab("slips")}
                 aria-current={tab === "slips" ? "page" : undefined}
                 className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
                   tab === "slips"
@@ -627,13 +641,7 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
             {tab === "payroll" && (
               <PayrollTab
                 employees={employees}
-                batches={batches}
                 advances={advances}
-                timesheets={timesheets}
-                timesheetsLoading={timesheetsQuery.isLoading}
-                timesheetsError={
-                  timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : ""
-                }
                 saving={saveBatch.isPending}
                 canDelete={canDelete}
                 notify={notify}
@@ -645,6 +653,9 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
                   await saveBatch.mutateAsync(batch);
                   notify("Payroll batch saved.");
                 }}
+                onStatus={(id: string, status: PayrollBatchStatus) =>
+                  updateBatchStatus.mutateAsync({ id, status })
+                }
                 onDelete={(id) =>
                   deleteBatch.mutate(id, {
                     onSuccess: () => notify("Payroll batch deleted."),
@@ -685,7 +696,7 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
             {tab === "slips" && (
               <SlipsTab employees={employees} batches={batches} notify={notify} />
             )}
-            {tab === "cost" && <CostTab batches={batches} employees={employees} notify={notify} />}
+            {tab === "cost" && <CostTab employees={employees} notify={notify} />}
             {tab === "audit" && canDelete && <AuditHistoryTab />}
           </main>
 

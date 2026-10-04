@@ -1,4 +1,5 @@
-import { lineGross, toNum, type Employee, type PayrollBatch } from "./payroll";
+import type { Employee } from "./payroll";
+import type { PayrollSiteAllocation } from "./payroll-data";
 
 export interface AllocationRow {
   key: string;
@@ -8,71 +9,51 @@ export interface AllocationRow {
   site: string;
   foreman: string;
   month: string;
-  hours: number;
-  basic: number;
-  foodDeduction: number;
-  previousAdvance: number;
-  outstanding: number;
-  total: number;
-  allocated: number;
-  remaining: number;
+  regularHours: number;
+  overtimeHours: number;
+  allocatedRegularPay: number;
+  allocatedOvertimePay: number;
+  allocatedAllowances: number;
+  grossCost: number;
+  allocationBasis: string;
 }
 
-/** Flatten every payroll line into a cost-allocation record. */
 export function buildAllocationRows(
-  batches: PayrollBatch[],
+  allocations: PayrollSiteAllocation[],
   employees: Employee[],
 ): AllocationRow[] {
-  const byId = new Map(employees.map((e) => [String(e.id), e]));
-  const advances = new Map<string, number>();
-  const rows: AllocationRow[] = [];
-  [...batches]
-    .sort((a, b) => a.month.localeCompare(b.month))
-    .forEach((b) => {
-      b.lines.forEach((l, i) => {
-        if (!l.employee_id) return;
-        const emp = byId.get(String(l.employee_id));
-        const hours = toNum(l.hours);
-        const basic = lineGross(l);
-        const total = toNum(l.net_salary);
-        const allocated = toNum(l.paid);
-        const employeeKey = String(l.employee_id);
-        const outstanding =
-          (advances.get(employeeKey) ?? 0) + toNum(l.new_advance) - toNum(l.prev_advance);
-        advances.set(employeeKey, Math.max(0, outstanding));
-        rows.push({
-          key: `${b.id}-${l.id ?? i}`,
-          employeeId: emp?.id_number?.trim() ? emp.id_number.trim() : "Not Assigned",
-          name: emp?.name ?? `Employee #${l.employee_id}`,
-          trade: emp?.trade ?? "—",
-          site: b.site || "(No Site)",
-          foreman: l.foreman || b.foreman || "(No Foreman)",
-          month: b.month,
-          hours,
-          basic,
-          foodDeduction: toNum(l.food_deduction),
-          previousAdvance: toNum(l.prev_advance),
-          outstanding: Math.max(0, outstanding),
-          total,
-          allocated,
-          remaining: total - allocated,
-        });
-      });
-    });
-  return rows;
+  const byId = new Map(employees.map((employee) => [employee.id, employee]));
+  return allocations.map((allocation) => {
+    const employee = byId.get(allocation.employee_id);
+    return {
+      key: allocation.id,
+      employeeId: employee?.id_number?.trim() || String(allocation.employee_id),
+      name: employee?.name ?? `Employee #${allocation.employee_id}`,
+      trade: employee?.trade ?? "—",
+      site: allocation.site,
+      foreman: allocation.foreman,
+      month: allocation.month,
+      regularHours: Number(allocation.regular_hours),
+      overtimeHours: Number(allocation.overtime_hours),
+      allocatedRegularPay: Number(allocation.allocated_regular_pay),
+      allocatedOvertimePay: Number(allocation.allocated_overtime_pay),
+      allocatedAllowances: Number(allocation.allocated_allowances),
+      grossCost: Number(allocation.allocated_gross_cost),
+      allocationBasis: allocation.allocation_basis,
+    };
+  });
 }
 
 export function allocationTotals(rows: AllocationRow[]) {
-  const sum = (f: (r: AllocationRow) => number) => rows.reduce((s, r) => s + f(r), 0);
+  const sum = (field: (row: AllocationRow) => number) =>
+    rows.reduce((total, row) => total + field(row), 0);
   return {
-    staff: new Set(rows.map((r) => r.name)).size,
-    hours: sum((r) => r.hours),
-    basic: sum((r) => r.basic),
-    foodDeduction: sum((r) => r.foodDeduction),
-    previousAdvance: sum((r) => r.previousAdvance),
-    outstanding: sum((r) => r.outstanding),
-    total: sum((r) => r.total),
-    allocated: sum((r) => r.allocated),
-    remaining: sum((r) => r.remaining),
+    staff: new Set(rows.map((row) => row.employeeId)).size,
+    regularHours: sum((row) => row.regularHours),
+    overtimeHours: sum((row) => row.overtimeHours),
+    regularPay: sum((row) => row.allocatedRegularPay),
+    overtimePay: sum((row) => row.allocatedOvertimePay),
+    allowances: sum((row) => row.allocatedAllowances),
+    grossCost: sum((row) => row.grossCost),
   };
 }

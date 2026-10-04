@@ -1,20 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Check, Clock3, Copy, HardHat, Search, Users, X } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
-import type { TimesheetRecord } from "@/lib/payroll-data";
+import { useTimesheetsForDate, type TimesheetRecord } from "@/lib/payroll-data";
 import { btnGold, btnOutline, card, input, inputSm } from "./ui";
 
 interface Props {
   employees: Employee[];
-  timesheets: TimesheetRecord[];
-  loading: boolean;
-  error: string;
   saving: boolean;
-  onSave: (rows: Omit<TimesheetRecord, "id" | "created_at" | "total_hours">[]) => Promise<void>;
+  onSave: (
+    rows: Omit<TimesheetRecord, "id" | "created_at" | "total_hours" | "regular_hours">[],
+  ) => Promise<void>;
   notify: (message: string, tone?: "ok" | "warn") => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
-type AttendanceStatus = "Present" | "Absent" | "Leave" | "Review";
+type AttendanceStatus = "PRESENT" | "ABSENT" | "LEAVE" | "HOLIDAY" | "WEEKLY_OFF" | "HALF_DAY";
+type AttendanceFilter = "All" | "Review" | AttendanceStatus;
 
 interface AttendanceRow {
   employeeId: number;
@@ -33,17 +34,15 @@ const today = () => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
 
-const crewPresets = ["Al Khoud", "Barka", "Seeb"] as const;
-
 function parseLocalTime(value: string) {
   if (!value) return null;
-  const [hours, minutes] = value.split(":").map(Number);
+  const [hours = Number.NaN, minutes = Number.NaN] = value.split(":").map(Number);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
   return hours * 60 + minutes;
 }
 
 function roundHours(value: number) {
-  return Number(Math.max(0, value).toFixed(2));
+  return Number(Math.max(0, value).toFixed(3));
 }
 
 function hoursFor(row: Pick<AttendanceRow, "inTime" | "outTime" | "breakHours">) {
@@ -55,43 +54,44 @@ function hoursFor(row: Pick<AttendanceRow, "inTime" | "outTime" | "breakHours">)
   return roundHours((shiftMinutes - breakMinutes) / 60);
 }
 
-function overtimeFor(row: Pick<AttendanceRow, "inTime" | "outTime" | "breakHours" | "overtime">) {
+function regularHoursFor(row: AttendanceRow) {
+  return roundHours(Math.max(0, hoursFor(row) - overtimeFor(row)));
+}
+
+function overtimeFor(row: Pick<AttendanceRow, "overtime">) {
   const overtime = Number(row.overtime || 0);
   if (!Number.isFinite(overtime) || overtime < 0) return 0;
   return overtime;
 }
 
-function statusForRow(row: AttendanceRow) {
-  if (row.status === "Absent" || row.status === "Leave") return row.status;
-  if (!row.inTime || !row.outTime) return "Review";
-  if (hoursFor(row) <= 0) return "Review";
-  if (overtimeFor(row) > 0) return "Review";
-  return "Present";
+function isReviewRow(row: AttendanceRow) {
+  if (row.status === "PRESENT" || row.status === "HALF_DAY") {
+    return !row.inTime || !row.outTime || hoursFor(row) <= 0;
+  }
+  return false;
 }
 
 function exceptionCount(row: AttendanceRow) {
-  const status = statusForRow(row);
-  if (row.status === "Absent") return 1;
-  if (row.status === "Leave") return 1;
-  if (!row.site) return 1;
-  if (!row.foreman) return 1;
-  if (!row.inTime || !row.outTime) return 1;
-  if (hoursFor(row) <= 0) return 1;
-  if (overtimeFor(row) > 0) return 1;
-  if (status === "Review") return 1;
+  if (row.status === "ABSENT" || row.status === "LEAVE") return 1;
+  if (!row.site.trim() || !row.foreman.trim()) return 1;
+  if (isReviewRow(row)) return 1;
   return 0;
 }
 
 function toTimesheetRow(employee: Employee, row: AttendanceRow, workDate: string) {
+  const worked = row.status === "PRESENT" || row.status === "HALF_DAY";
   return {
     employee_id: employee.id,
     site: row.site.trim() || "Unassigned",
     foreman: row.foreman.trim() || "Unassigned",
     work_date: workDate,
-    in_time: row.inTime || null,
-    out_time: row.outTime || null,
-    break_hours: Number(row.breakHours) || 0,
-  } as Omit<TimesheetRecord, "id" | "created_at" | "total_hours">;
+    status: row.status,
+    in_time: worked ? row.inTime || null : null,
+    out_time: worked ? row.outTime || null : null,
+    break_hours: worked ? Number(row.breakHours) || 0 : 0,
+    overtime_hours: worked ? Number(row.overtime) || 0 : 0,
+    remarks: row.notes.trim() || null,
+  } satisfies Omit<TimesheetRecord, "id" | "created_at" | "total_hours" | "regular_hours">;
 }
 
 function employeeLabel(employee: Employee) {
@@ -110,7 +110,7 @@ function initialRow(
     employeeId: employee.id,
     site,
     foreman,
-    status: "Present",
+    status: "PRESENT",
     inTime: "",
     outTime: "",
     breakHours: "0",
@@ -119,23 +119,27 @@ function initialRow(
   };
 }
 
-export function TimesheetsTab({
-  employees,
-  timesheets,
-  loading,
-  error,
-  saving,
-  onSave,
-  notify,
-}: Props) {
+function previousCalendarDate(dateValue: string) {
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const date = new Date(Date.UTC(year!, month! - 1, day!));
+  date.setUTCDate(date.getUTCDate() - 1);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange }: Props) {
   const [workDate, setWorkDate] = useState(today);
+  const previousDate = previousCalendarDate(workDate);
+  const timesheetsQuery = useTimesheetsForDate(workDate);
+  const previousTimesheetsQuery = useTimesheetsForDate(previousDate);
+  const timesheets = useMemo(() => timesheetsQuery.data ?? [], [timesheetsQuery.data]);
   const [siteFilter, setSiteFilter] = useState("Al Khoud");
-  const [crewName, setCrewName] = useState<(typeof crewPresets)[number]>("Al Khoud");
+  const [crewName, setCrewName] = useState("All foremen");
   const [search, setSearch] = useState("");
-  const [selectedStatus, setSelectedStatus] = useState<"All" | AttendanceStatus>("All");
+  const [selectedStatus, setSelectedStatus] = useState<AttendanceFilter>("All");
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
   const [rows, setRows] = useState<Record<number, AttendanceRow>>({});
+  const [dirtyIds, setDirtyIds] = useState<Set<number>>(() => new Set());
 
   const activeEmployees = useMemo(
     () =>
@@ -150,7 +154,6 @@ export function TimesheetsTab({
       [
         ...new Set([
           ...timesheets.map((entry) => entry.site).filter(Boolean),
-          ...crewPresets,
           "Al Khoud",
           "Barka",
           "Seeb",
@@ -162,10 +165,13 @@ export function TimesheetsTab({
   const filteredEmployees = useMemo(() => {
     const query = search.trim().toLowerCase();
     return activeEmployees.filter((employee) => {
+      const row = rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "");
+      if (crewName !== "All foremen" && row.foreman !== crewName) return false;
+      if (selectedStatus === "Review" && !isReviewRow(row)) return false;
       if (
         selectedStatus !== "All" &&
-        statusForRow(rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "")) !==
-          selectedStatus
+        selectedStatus !== "Review" &&
+        row.status !== selectedStatus
       ) {
         return false;
       }
@@ -175,7 +181,7 @@ export function TimesheetsTab({
         .toLowerCase();
       return haystack.includes(query);
     });
-  }, [activeEmployees, rows, search, selectedStatus, siteFilter, workDate]);
+  }, [activeEmployees, crewName, rows, search, selectedStatus, siteFilter, workDate]);
 
   const selectedEmployee = useMemo(
     () => activeEmployees.find((employee) => employee.id === selectedEmployeeId) ?? null,
@@ -194,39 +200,59 @@ export function TimesheetsTab({
     }
 
     for (const employee of activeEmployees) {
-      const existing = rows[employee.id];
       const match = entriesByEmployee.get(employee.id);
-      const next: AttendanceRow = existing ?? {
+      const next: AttendanceRow = {
         employeeId: employee.id,
-        site: siteFilter,
+        site: match?.site ?? siteFilter,
         foreman: match?.foreman ?? "",
-        status: match ? (match.out_time && match.in_time ? "Present" : "Review") : "Present",
+        status: match?.status ?? "PRESENT",
         inTime: match?.in_time ?? "",
         outTime: match?.out_time ?? "",
         breakHours: String(match?.break_hours ?? 0),
-        notes: "",
-        overtime: "0",
+        notes: match?.remarks ?? "",
+        overtime: String(match?.overtime_hours ?? 0),
       };
       patch[employee.id] = next;
     }
 
-    setRows((prev) => ({ ...prev, ...patch }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeEmployees, workDate, timesheets]);
+    setRows(patch);
+    setDirtyIds(new Set());
+  }, [activeEmployees, siteFilter, workDate, timesheets]);
+
+  useEffect(() => {
+    onDirtyChange?.(dirtyIds.size > 0);
+  }, [dirtyIds, onDirtyChange]);
+
+  useEffect(() => {
+    if (dirtyIds.size === 0) return;
+    const protectUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", protectUnload);
+    return () => window.removeEventListener("beforeunload", protectUnload);
+  }, [dirtyIds]);
+
+  const confirmDiscard = () => {
+    if (!dirtyIds.size) return true;
+    if (!window.confirm("Discard unsaved attendance changes?")) return false;
+    setDirtyIds(new Set());
+    return true;
+  };
 
   const exceptionSummary = useMemo(() => {
     const total = filteredEmployees.length;
     const missing = filteredEmployees.filter((employee) => {
       const row = rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "");
-      return exceptionCount(row) > 0 && row.status !== "Leave" && row.status !== "Absent";
+      return exceptionCount(row) > 0 && row.status !== "LEAVE" && row.status !== "ABSENT";
     }).length;
     const leave = filteredEmployees.filter(
       (employee) =>
-        (rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "")).status === "Leave",
+        (rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "")).status === "LEAVE",
     ).length;
     const absent = filteredEmployees.filter(
       (employee) =>
-        (rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "")).status === "Absent",
+        (rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "")).status === "ABSENT",
     ).length;
     const overtime = filteredEmployees.filter((employee) => {
       const row = rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "");
@@ -257,15 +283,19 @@ export function TimesheetsTab({
       const draft = { ...base, ...patch, employeeId };
       if (patch.status) {
         draft.status = patch.status;
+        if (
+          patch.status === "ABSENT" ||
+          patch.status === "LEAVE" ||
+          patch.status === "HOLIDAY" ||
+          patch.status === "WEEKLY_OFF"
+        ) {
+          draft.inTime = "";
+          draft.outTime = "";
+          draft.breakHours = "0";
+          draft.overtime = "0";
+        }
       }
-      if (
-        patch.inTime !== undefined ||
-        patch.outTime !== undefined ||
-        patch.breakHours !== undefined ||
-        patch.overtime !== undefined
-      ) {
-        draft.status = statusForRow(draft) === "Present" ? "Present" : draft.status;
-      }
+      setDirtyIds((dirty) => new Set(dirty).add(employeeId));
       return { ...current, [employeeId]: draft };
     });
   };
@@ -276,27 +306,46 @@ export function TimesheetsTab({
   }));
 
   const saveAll = async () => {
-    const payload = currentRecords
-      .filter(
-        ({ row }) =>
-          row.site ||
-          row.foreman ||
-          row.inTime ||
-          row.outTime ||
-          row.breakHours !== "0" ||
-          row.status !== "Present",
-      )
-      .map(({ employee, row }) =>
-        toTimesheetRow(
-          employee,
-          {
-            ...row,
-            site: row.site || siteFilter || "Unassigned",
-            foreman: row.foreman || "Unassigned",
-          },
-          workDate,
-        ),
+    const dirtyRecords = activeEmployees
+      .filter((employee) => dirtyIds.has(employee.id))
+      .map((employee) => ({
+        employee,
+        row: rows[employee.id] ?? initialRow(employee, workDate, siteFilter, ""),
+      }));
+    const invalid = dirtyRecords.filter(
+      ({ employee, row }) =>
+        (dirtyIds.has(employee.id) &&
+          (row.status === "PRESENT" || row.status === "HALF_DAY") &&
+          (!row.inTime ||
+            !row.outTime ||
+            parseLocalTime(row.outTime) === null ||
+            parseLocalTime(row.inTime) === null ||
+            parseLocalTime(row.outTime)! <= parseLocalTime(row.inTime)! ||
+            !Number.isFinite(Number(row.breakHours)) ||
+            Number(row.breakHours) < 0 ||
+            Number(row.breakHours) > hoursFor(row) ||
+            Number(row.overtime) > hoursFor(row))) ||
+        (dirtyIds.has(employee.id) &&
+          (!Number.isFinite(Number(row.overtime)) || Number(row.overtime) < 0)),
+    );
+    if (invalid.length) {
+      notify(
+        `${invalid.length} attendance row(s) have invalid time, break, or overtime values.`,
+        "warn",
       );
+      return;
+    }
+    const payload = dirtyRecords.map(({ employee, row }) =>
+      toTimesheetRow(
+        employee,
+        {
+          ...row,
+          site: row.site || siteFilter || "Unassigned",
+          foreman: row.foreman || "Unassigned",
+        },
+        workDate,
+      ),
+    );
 
     if (!payload.length) {
       notify("There are no attendance entries to save for this filtered view.", "warn");
@@ -305,6 +354,7 @@ export function TimesheetsTab({
 
     try {
       await onSave(payload);
+      setDirtyIds(new Set());
       notify(`${payload.length} attendance entr${payload.length === 1 ? "y" : "ies"} saved.`);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Could not save attendance entries.", "warn");
@@ -318,22 +368,40 @@ export function TimesheetsTab({
     const targets = selectedIds.length
       ? selectedIds
       : filteredEmployees.map((employee) => employee.id);
+    const applicableTargets = targets.filter((employeeId) => {
+      if (action !== "overtime") return true;
+      const employee = activeEmployees.find((entry) => entry.id === employeeId);
+      const row =
+        rows[employeeId] ?? (employee ? initialRow(employee, workDate, siteFilter, "") : null);
+      return row?.status === "PRESENT" || row?.status === "HALF_DAY";
+    });
+    if (applicableTargets.length !== targets.length) {
+      notify("Overtime was skipped for non-work attendance statuses.", "warn");
+    }
     setRows((current) => {
       const next = { ...current };
-      for (const employeeId of targets) {
-        const employee = activeEmployees.find((entry) => entry.id === employeeId) ?? null;
-        const base =
-          next[employeeId] ?? initialRow(employee ?? activeEmployees[0], workDate, siteFilter, "");
+      for (const employeeId of applicableTargets) {
+        const employee = activeEmployees.find((entry) => entry.id === employeeId);
+        if (!employee) continue;
+        const base = next[employeeId] ?? initialRow(employee, workDate, siteFilter, "");
         const draft = { ...base };
         switch (action) {
           case "present":
-            draft.status = "Present";
+            draft.status = "PRESENT";
             break;
           case "absent":
-            draft.status = "Absent";
+            draft.status = "ABSENT";
+            draft.inTime = "";
+            draft.outTime = "";
+            draft.breakHours = "0";
+            draft.overtime = "0";
             break;
           case "leave":
-            draft.status = "Leave";
+            draft.status = "LEAVE";
+            draft.inTime = "";
+            draft.outTime = "";
+            draft.breakHours = "0";
+            draft.overtime = "0";
             break;
           case "in":
             draft.inTime = value ?? "08:00";
@@ -356,21 +424,25 @@ export function TimesheetsTab({
         }
         next[employeeId] = draft;
       }
+      setDirtyIds((dirty) => new Set([...dirty, ...applicableTargets]));
       return next;
     });
   };
 
   const copyPreviousDay = () => {
-    const previousDate = (() => {
-      const date = new Date(`${workDate}T00:00:00`);
-      date.setDate(date.getDate() - 1);
-      return date.toISOString().slice(0, 10);
-    })();
-
-    const previousEntries = timesheets.filter(
-      (entry) =>
-        entry.work_date === previousDate &&
-        (!siteFilter || !entry.site || entry.site === siteFilter),
+    if (previousTimesheetsQuery.isLoading) {
+      notify("Previous-day attendance is still loading.", "warn");
+      return;
+    }
+    if (previousTimesheetsQuery.error) {
+      notify(
+        `Could not load previous-day attendance: ${previousTimesheetsQuery.error.message}`,
+        "warn",
+      );
+      return;
+    }
+    const previousEntries = (previousTimesheetsQuery.data ?? []).filter(
+      (entry) => !siteFilter || !entry.site || entry.site === siteFilter,
     );
 
     if (!previousEntries.length) {
@@ -378,36 +450,43 @@ export function TimesheetsTab({
       return;
     }
 
+    const currentSavedIds = new Set(
+      timesheets.filter((entry) => entry.work_date === workDate).map((entry) => entry.employee_id),
+    );
+    const copiedIds = previousEntries
+      .map((entry) => entry.employee_id)
+      .filter((employeeId) => activeEmployees.some((employee) => employee.id === employeeId));
+    const overwritten = copiedIds.filter(
+      (employeeId) => currentSavedIds.has(employeeId) || dirtyIds.has(employeeId),
+    ).length;
+    const confirmText =
+      `Copy ${previousDate} attendance to ${workDate} for ${copiedIds.length} employee(s)?` +
+      (overwritten
+        ? ` This will replace ${overwritten} existing saved or unsaved row(s) for the selected site.`
+        : "");
+    if (!window.confirm(confirmText)) return;
+
     const nextRows = { ...rows };
     for (const entry of previousEntries) {
       const employee = activeEmployees.find((item) => item.id === entry.employee_id);
       if (!employee) continue;
-      const hasCurrent = Boolean(nextRows[employee.id]);
-      if (
-        hasCurrent &&
-        (nextRows[employee.id].inTime ||
-          nextRows[employee.id].outTime ||
-          nextRows[employee.id].breakHours !== "0")
-      ) {
-        const replace = window.confirm(
-          `Replace the existing attendance for ${employee.name} on ${workDate}?`,
-        );
-        if (!replace) continue;
-      }
       nextRows[employee.id] = {
         employeeId: employee.id,
         site: entry.site || siteFilter,
         foreman: entry.foreman || "",
-        status: "Present",
+        status: entry.status,
         inTime: entry.in_time ?? "",
         outTime: entry.out_time ?? "",
         breakHours: String(entry.break_hours ?? 0),
-        notes: "",
-        overtime: "0",
+        notes: entry.remarks ?? "",
+        overtime: String(entry.overtime_hours ?? 0),
       };
     }
     setRows(nextRows);
-    notify(`Previous-day attendance copied for ${previousEntries.length} employee(s).`);
+    setDirtyIds((dirty) => new Set([...dirty, ...copiedIds]));
+    notify(
+      `Copied ${copiedIds.length} attendance row(s) from ${previousDate} to ${workDate}. Review and save them.`,
+    );
   };
 
   const loadCrew = () => {
@@ -444,7 +523,12 @@ export function TimesheetsTab({
             <input
               type="date"
               value={workDate}
-              onChange={(event) => setWorkDate(event.target.value)}
+              onChange={(event) => {
+                if (confirmDiscard()) {
+                  setRows({});
+                  setWorkDate(event.target.value);
+                }
+              }}
               className={input + " mt-1 min-w-[160px]"}
             />
           </label>
@@ -452,7 +536,9 @@ export function TimesheetsTab({
             Site
             <input
               value={siteFilter}
-              onChange={(event) => setSiteFilter(event.target.value)}
+              onChange={(event) => {
+                if (confirmDiscard()) setSiteFilter(event.target.value);
+              }}
               list="site-options"
               className={input + " mt-1 min-w-[160px]"}
             />
@@ -461,14 +547,26 @@ export function TimesheetsTab({
             Crew
             <select
               value={crewName}
-              onChange={(event) => setCrewName(event.target.value as (typeof crewPresets)[number])}
+              onChange={(event) => {
+                if (confirmDiscard()) setCrewName(event.target.value);
+              }}
               className={input + " mt-1 min-w-[140px]"}
             >
-              {crewPresets.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
+              <option value="All foremen">All foremen</option>
+              {[
+                ...new Set(
+                  timesheets
+                    .filter((entry) => entry.work_date === workDate)
+                    .map((entry) => entry.foreman)
+                    .filter(Boolean),
+                ),
+              ]
+                .sort()
+                .map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
             </select>
           </label>
         </div>
@@ -529,15 +627,16 @@ export function TimesheetsTab({
               </div>
               <select
                 value={selectedStatus}
-                onChange={(event) =>
-                  setSelectedStatus(event.target.value as "All" | AttendanceStatus)
-                }
+                onChange={(event) => setSelectedStatus(event.target.value as AttendanceFilter)}
                 className={input}
               >
                 <option value="All">All statuses</option>
-                <option value="Present">Present</option>
-                <option value="Absent">Absent</option>
-                <option value="Leave">Leave</option>
+                <option value="PRESENT">Present</option>
+                <option value="ABSENT">Absent</option>
+                <option value="LEAVE">Leave</option>
+                <option value="HOLIDAY">Holiday</option>
+                <option value="WEEKLY_OFF">Weekly off</option>
+                <option value="HALF_DAY">Half day</option>
                 <option value="Review">Review</option>
               </select>
             </div>
@@ -606,7 +705,7 @@ export function TimesheetsTab({
                     <th className="px-2 py-3">In</th>
                     <th className="px-2 py-3">Out</th>
                     <th className="px-2 py-3">Break</th>
-                    <th className="px-2 py-3">Hours</th>
+                    <th className="px-2 py-3">Regular hrs</th>
                     <th className="px-2 py-3">OT</th>
                     <th className="px-2 py-3">Notes</th>
                   </tr>
@@ -614,6 +713,7 @@ export function TimesheetsTab({
                 <tbody>
                   {filteredEmployees.map((employee) => {
                     const row = rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "");
+                    const worked = row.status === "PRESENT" || row.status === "HALF_DAY";
                     const isSelected = selectedIds.includes(employee.id);
                     const isException = exceptionCount(row) > 0;
                     return (
@@ -663,30 +763,34 @@ export function TimesheetsTab({
                             }
                             className={inputSm + " min-w-[100px]"}
                           >
-                            <option value="Present">Present</option>
-                            <option value="Absent">Absent</option>
-                            <option value="Leave">Leave</option>
-                            <option value="Review">Review</option>
+                            <option value="PRESENT">Present</option>
+                            <option value="ABSENT">Absent</option>
+                            <option value="LEAVE">Leave</option>
+                            <option value="HOLIDAY">Holiday</option>
+                            <option value="WEEKLY_OFF">Weekly off</option>
+                            <option value="HALF_DAY">Half day</option>
                           </select>
                         </td>
                         <td className="px-2 py-2">
                           <input
                             type="time"
                             value={row.inTime}
+                            disabled={!worked}
                             onChange={(event) =>
                               updateRow(employee.id, { inTime: event.target.value })
                             }
-                            className={inputSm + " min-w-[90px]"}
+                            className={inputSm + " min-w-[90px] disabled:opacity-50"}
                           />
                         </td>
                         <td className="px-2 py-2">
                           <input
                             type="time"
                             value={row.outTime}
+                            disabled={!worked}
                             onChange={(event) =>
                               updateRow(employee.id, { outTime: event.target.value })
                             }
-                            className={inputSm + " min-w-[90px]"}
+                            className={inputSm + " min-w-[90px] disabled:opacity-50"}
                           />
                         </td>
                         <td className="px-2 py-2">
@@ -695,14 +799,15 @@ export function TimesheetsTab({
                             min="0"
                             step="0.25"
                             value={row.breakHours}
+                            disabled={!worked}
                             onChange={(event) =>
                               updateRow(employee.id, { breakHours: event.target.value })
                             }
-                            className={inputSm + " min-w-[70px]"}
+                            className={inputSm + " min-w-[70px] disabled:opacity-50"}
                           />
                         </td>
                         <td className="px-2 py-2 text-right font-bold text-navy">
-                          {hoursFor(row).toFixed(2)}
+                          {regularHoursFor(row).toFixed(2)}
                         </td>
                         <td className="px-2 py-2">
                           <input
@@ -710,10 +815,11 @@ export function TimesheetsTab({
                             min="0"
                             step="0.25"
                             value={row.overtime}
+                            disabled={!worked}
                             onChange={(event) =>
                               updateRow(employee.id, { overtime: event.target.value })
                             }
-                            className={inputSm + " min-w-[65px]"}
+                            className={inputSm + " min-w-[65px] disabled:opacity-50"}
                           />
                         </td>
                         <td className="px-2 py-2">
@@ -777,7 +883,9 @@ export function TimesheetsTab({
                   <div className="mt-2 space-y-1 text-slate-600">
                     <div className="flex justify-between">
                       <span>Hours</span>
-                      <strong className="text-navy">{hoursFor(selectedRow).toFixed(2)}</strong>
+                      <strong className="text-navy">
+                        {regularHoursFor(selectedRow).toFixed(2)}
+                      </strong>
                     </div>
                     <div className="flex justify-between">
                       <span>OT</span>
@@ -797,21 +905,21 @@ export function TimesheetsTab({
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => updateRow(selectedEmployee.id, { status: "Present" })}
+                      onClick={() => updateRow(selectedEmployee.id, { status: "PRESENT" })}
                       className={btnOutline + " justify-center px-2 py-2 text-[11px]"}
                     >
                       Present
                     </button>
                     <button
                       type="button"
-                      onClick={() => updateRow(selectedEmployee.id, { status: "Absent" })}
+                      onClick={() => updateRow(selectedEmployee.id, { status: "ABSENT" })}
                       className={btnOutline + " justify-center px-2 py-2 text-[11px]"}
                     >
                       Absent
                     </button>
                     <button
                       type="button"
-                      onClick={() => updateRow(selectedEmployee.id, { status: "Leave" })}
+                      onClick={() => updateRow(selectedEmployee.id, { status: "LEAVE" })}
                       className={btnOutline + " justify-center px-2 py-2 text-[11px]"}
                     >
                       Leave
@@ -840,9 +948,11 @@ export function TimesheetsTab({
       <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <AlertTriangle size={14} className="text-warn" />
-          {error
-            ? `Attendance load issue: ${error}`
-            : `Showing ${currentRecords.length} rows for ${workDate}`}
+          {timesheetsQuery.error
+            ? `Attendance load issue: ${timesheetsQuery.error.message}`
+            : timesheetsQuery.isLoading
+              ? `Loading attendance for ${workDate}…`
+              : `Showing ${currentRecords.length} rows for ${workDate}`}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button

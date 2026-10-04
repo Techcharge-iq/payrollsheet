@@ -22,7 +22,19 @@ export interface PayrollLine {
   other_deduction: number | string;
   net_salary: number | string;
   paid: number | string;
+  calculation_version?: string | null;
+  regular_hours?: number | string | null;
+  overtime_hours?: number | string | null;
+  regular_pay?: number | string | null;
+  overtime_pay?: number | string | null;
+  allowances?: number | string | null;
+  gross_pay?: number | string | null;
+  deductions?: number | string | null;
+  advance_recovery?: number | string | null;
+  net_pay?: number | string | null;
 }
+
+export type PayrollBatchStatus = "LEGACY" | "DRAFT" | "REVIEW" | "APPROVED" | "LOCKED" | "PAID";
 
 export interface PayrollBatch {
   id: string;
@@ -30,6 +42,13 @@ export interface PayrollBatch {
   site: string;
   foreman: string;
   lines: PayrollLine[];
+  status: PayrollBatchStatus;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  locked_by?: string | null;
+  locked_at?: string | null;
+  paid_by?: string | null;
+  paid_at?: string | null;
 }
 
 export const TRADES = ["CARPENTER", "STEEL FIXER", "HELPER", "MASON", "ELEC", "PLUB", "FORMAN"];
@@ -81,8 +100,31 @@ export function fmt(n: number) {
   });
 }
 
-/** Gross = hours x rate */
+export const PAYROLL_CALCULATION_VERSION = "attendance-v1";
+
+export interface PayrollPolicy {
+  version: string;
+  overtimeMultiplier: number | null;
+  roundingDecimals: 3;
+  negativeNetHandling: "CLAMP_TO_ZERO";
+  paidNonWorkStatusHours: 0;
+  halfDayUsesRecordedHours: true;
+  overtimeWithinRecordedShift: true;
+}
+
+export const PAYROLL_POLICY: PayrollPolicy = {
+  version: PAYROLL_CALCULATION_VERSION,
+  overtimeMultiplier: null,
+  roundingDecimals: 3,
+  negativeNetHandling: "CLAMP_TO_ZERO",
+  paidNonWorkStatusHours: 0,
+  halfDayUsesRecordedHours: true,
+  overtimeWithinRecordedShift: true,
+};
+
+/** Use the saved calculation snapshot where available; retain legacy interpretation otherwise. */
 export function lineGross(l: PayrollLine) {
+  if (l.gross_pay !== null && l.gross_pay !== undefined) return toNum(l.gross_pay);
   return toNum(l.hours) * toNum(l.rate);
 }
 
@@ -92,6 +134,75 @@ export function computeNet(l: PayrollLine) {
     0,
     lineGross(l) - toNum(l.food_deduction) - toNum(l.prev_advance) - toNum(l.other_deduction),
   );
+}
+
+export interface PayrollCalculationInput {
+  regularHours: number;
+  overtimeHours: number;
+  rate: number;
+  allowances: number;
+  deductions: number;
+  advanceRecovery: number;
+  policy: PayrollPolicy;
+}
+
+export interface PayrollCalculation {
+  regularHours: number;
+  overtimeHours: number;
+  regularPay: number;
+  overtimePay: number;
+  allowances: number;
+  grossPay: number;
+  deductions: number;
+  advanceRecovery: number;
+  netPay: number;
+  calculationVersion: string;
+}
+
+function roundPayrollAmount(value: number, decimals: number) {
+  const scale = 10 ** decimals;
+  return Math.round((value + Number.EPSILON) * scale) / scale;
+}
+
+export function calculatePayroll(input: PayrollCalculationInput): PayrollCalculation {
+  const values = [
+    input.regularHours,
+    input.overtimeHours,
+    input.rate,
+    input.allowances,
+    input.deductions,
+    input.advanceRecovery,
+  ];
+  if (values.some((value) => !Number.isFinite(value) || value < 0)) {
+    throw new Error("Payroll calculation values must be finite and non-negative.");
+  }
+  if (input.overtimeHours > 0 && input.policy.overtimeMultiplier === null) {
+    throw new Error("Configure the overtime multiplier before generating payroll with overtime.");
+  }
+
+  const round = (value: number) => roundPayrollAmount(value, input.policy.roundingDecimals);
+  const regularPay = round(input.regularHours * input.rate);
+  const overtimePay = round(
+    input.overtimeHours * input.rate * (input.policy.overtimeMultiplier ?? 0),
+  );
+  const allowances = round(input.allowances);
+  const grossPay = round(regularPay + overtimePay + allowances);
+  const deductions = round(input.deductions);
+  const advanceRecovery = round(input.advanceRecovery);
+  const netPay = Math.max(0, round(grossPay - deductions - advanceRecovery));
+
+  return {
+    regularHours: round(input.regularHours),
+    overtimeHours: round(input.overtimeHours),
+    regularPay,
+    overtimePay,
+    allowances,
+    grossPay,
+    deductions,
+    advanceRecovery,
+    netPay,
+    calculationVersion: input.policy.version,
+  };
 }
 
 export function lineBalance(l: PayrollLine) {
@@ -227,6 +338,16 @@ export function advancesIssued(
     .filter((a) => String(a.employee_id) === String(employeeId))
     .filter((a) => (beforeMonth ? txMonth(a.date) < beforeMonth : true))
     .reduce((s, a) => s + toNum(a.amount), 0);
+}
+
+export function advanceCarryForwardFromBalance(
+  employeeId: number | string,
+  month: string,
+  historicalPayrollBalance: number,
+  advances: AdvanceTx[],
+) {
+  const balance = advancesIssued(employeeId, advances, month) + historicalPayrollBalance;
+  return Math.max(0, Math.round(balance * 1000) / 1000);
 }
 
 /** Advance recovered through payroll (prev_advance column). */
