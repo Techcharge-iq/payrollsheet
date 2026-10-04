@@ -446,9 +446,7 @@ export function PayrollTab({
   const advanceBalancesQuery = usePayrollAdvanceBalancesBefore(month);
   const historicalAdvanceBalances = useMemo(
     () =>
-      new Map(
-        (advanceBalancesQuery.data ?? []).map((entry) => [entry.employee_id, entry.balance]),
-      ),
+      new Map((advanceBalancesQuery.data ?? []).map((entry) => [entry.employee_id, entry.balance])),
     [advanceBalancesQuery.data],
   );
   const carryForward = useCallback(
@@ -480,6 +478,21 @@ export function PayrollTab({
     [timesheets],
   );
   const monthBatches = useMemo(() => batches.filter((b) => b.month === month), [batches, month]);
+  const monthSummary = useMemo(
+    () =>
+      monthBatches.reduce(
+        (summary, batch) => {
+          summary.employees += batch.lines.length;
+          batch.lines.forEach((line) => {
+            summary.net += toNum(line.net_salary);
+            summary.paid += toNum(line.paid);
+          });
+          return summary;
+        },
+        { employees: 0, net: 0, paid: 0 },
+      ),
+    [monthBatches],
+  );
 
   const locked = useMemo(
     () => lockedEmployeeIds(batches, month, draft?.id ?? null),
@@ -948,6 +961,26 @@ export function PayrollTab({
         </button>
       </div>
 
+      <section
+        className="mobile-metric-grid grid grid-cols-2 gap-3 sm:grid-cols-4"
+        aria-label={`${monthLabel(month)} payroll summary`}
+      >
+        {[
+          { label: "Payroll batches", value: String(monthBatches.length) },
+          { label: "Employees included", value: String(monthSummary.employees) },
+          { label: "Net payroll", value: `${fmt(monthSummary.net)} OMR` },
+          { label: "Balance due", value: `${fmt(monthSummary.net - monthSummary.paid)} OMR` },
+        ].map((item, index) => (
+          <div
+            key={item.label}
+            className={`${card} mobile-metric p-3.5${index === 2 ? " mobile-metric-primary" : index === 3 && monthSummary.net > monthSummary.paid ? " mobile-metric-alert" : ""}`}
+          >
+            <p>{item.label}</p>
+            <strong>{item.value}</strong>
+          </div>
+        ))}
+      </section>
+
       {locked.size > 0 && (
         <p className="flex items-center gap-2 rounded-lg border border-gold/40 bg-gold/10 px-3 py-2 text-xs font-medium text-slate-700">
           <Lock size={14} className="text-gold-dark" />
@@ -1089,9 +1122,7 @@ export function PayrollTab({
                   </thead>
                   <tbody>
                     {draft.lines.map((l, idx) => {
-                      const carry = l.employee_id
-                        ? carryForward(l.employee_id)
-                        : 0;
+                      const carry = l.employee_id ? carryForward(l.employee_id) : 0;
                       return (
                         <tr key={idx} className="border-b border-border align-top last:border-0">
                           <td className="px-3 py-2">

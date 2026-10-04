@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -24,15 +24,41 @@ import {
 import type { Session } from "@supabase/supabase-js";
 
 import { LoginPage } from "@/components/payroll/LoginPage";
-import { EmployeesTab } from "@/components/payroll/EmployeesTab";
-import { PayrollTab } from "@/components/payroll/PayrollTab";
-import { HistoryTab } from "@/components/payroll/HistoryTab";
-import { SlipsTab } from "@/components/payroll/SlipsTab";
-import { CostTab } from "@/components/payroll/CostTab";
-import { AdvancesTab } from "@/components/payroll/AdvancesTab";
-import { AuditHistoryTab } from "@/components/payroll/AuditHistoryTab";
-import { TimesheetsTab } from "@/components/payroll/TimesheetsTab";
-import { AttendanceReportTab } from "@/components/payroll/AttendanceReportTab";
+const EmployeesTab = lazy(() =>
+  import("@/components/payroll/EmployeesTab").then((module) => ({
+    default: module.EmployeesTab,
+  })),
+);
+const PayrollTab = lazy(() =>
+  import("@/components/payroll/PayrollTab").then((module) => ({ default: module.PayrollTab })),
+);
+const HistoryTab = lazy(() =>
+  import("@/components/payroll/HistoryTab").then((module) => ({ default: module.HistoryTab })),
+);
+const SlipsTab = lazy(() =>
+  import("@/components/payroll/SlipsTab").then((module) => ({ default: module.SlipsTab })),
+);
+const CostTab = lazy(() =>
+  import("@/components/payroll/CostTab").then((module) => ({ default: module.CostTab })),
+);
+const AdvancesTab = lazy(() =>
+  import("@/components/payroll/AdvancesTab").then((module) => ({ default: module.AdvancesTab })),
+);
+const AuditHistoryTab = lazy(() =>
+  import("@/components/payroll/AuditHistoryTab").then((module) => ({
+    default: module.AuditHistoryTab,
+  })),
+);
+const TimesheetsTab = lazy(() =>
+  import("@/components/payroll/TimesheetsTab").then((module) => ({
+    default: module.TimesheetsTab,
+  })),
+);
+const AttendanceReportTab = lazy(() =>
+  import("@/components/payroll/AttendanceReportTab").then((module) => ({
+    default: module.AttendanceReportTab,
+  })),
+);
 import {
   EmployeeModal,
   type EmployeeForm,
@@ -328,6 +354,44 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
   ];
   const showHome = tab === "history" || tab === "slips";
 
+  const quickActions = useMemo(
+    () => [
+      {
+        id: "new-employee",
+        label: "New employee",
+        description: "Create a worker profile",
+        icon: Users,
+        action: () => {
+          setForm(emptyForm);
+          setMode("new");
+          navigateToTab("employees");
+        },
+      },
+      {
+        id: "payroll",
+        label: "Open payroll",
+        description: "Manage monthly payroll",
+        icon: Save,
+        action: () => navigateToTab("payroll"),
+      },
+      {
+        id: "slips",
+        label: "Generate slips",
+        description: "Download payslips",
+        icon: FileDown,
+        action: () => navigateToTab("slips"),
+      },
+      {
+        id: "search",
+        label: "Search / commands",
+        description: "Jump anywhere fast",
+        icon: Search,
+        action: () => setCommandOpen(true),
+      },
+    ],
+    [navigateToTab],
+  );
+
   const commandActions = useMemo(
     () => [
       {
@@ -533,6 +597,21 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
             </div>
           </header>
 
+          <div className="mb-5 flex flex-wrap gap-2">
+            {quickActions.map(({ id, label, description, icon: Icon, action }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={action}
+                className="quick-action-button"
+                title={description}
+              >
+                <Icon size={15} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+
           <nav className="workstation-nav mobile-desktop-tabs mb-5 flex w-fit max-w-full gap-1 overflow-x-auto p-1">
             {TABS.filter((item) => !("adminOnly" in item) || canDelete).map(
               ({ id, label, icon: Icon }) => (
@@ -623,82 +702,90 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
             </div>
           )}
 
-          <main key={tab} className="mobile-screen-enter">
-            {tab === "employees" && (
-              <EmployeesTab
-                employees={employees}
-                batches={batches}
-                loading={employeesQuery.isLoading}
-                onNew={() => {
-                  setForm(emptyForm);
-                  setMode("new");
-                }}
-                onView={(e) => openFor(e, "view")}
-                onEdit={(e) => openFor(e, "edit")}
-              />
-            )}
+          <Suspense
+            fallback={
+              <div className="rounded-xl border border-border bg-card p-8 text-center text-sm font-medium text-muted-foreground">
+                Loading section…
+              </div>
+            }
+          >
+            <main key={tab} className="mobile-screen-enter">
+              {tab === "employees" && (
+                <EmployeesTab
+                  employees={employees}
+                  batches={batches}
+                  loading={employeesQuery.isLoading}
+                  onNew={() => {
+                    setForm(emptyForm);
+                    setMode("new");
+                  }}
+                  onView={(e) => openFor(e, "view")}
+                  onEdit={(e) => openFor(e, "edit")}
+                />
+              )}
 
-            {tab === "payroll" && (
-              <PayrollTab
-                employees={employees}
-                advances={advances}
-                saving={saveBatch.isPending}
-                canDelete={canDelete}
-                notify={notify}
-                onNewEmployee={() => {
-                  setForm(emptyForm);
-                  setMode("new");
-                }}
-                onSave={async (batch) => {
-                  await saveBatch.mutateAsync(batch);
-                  notify("Payroll batch saved.");
-                }}
-                onStatus={(id: string, status: PayrollBatchStatus) =>
-                  updateBatchStatus.mutateAsync({ id, status })
-                }
-                onDelete={(id) =>
-                  deleteBatch.mutate(id, {
-                    onSuccess: () => notify("Payroll batch deleted."),
-                    onError: (e) => notify((e as Error).message, "warn"),
-                  })
-                }
-              />
-            )}
+              {tab === "payroll" && (
+                <PayrollTab
+                  employees={employees}
+                  advances={advances}
+                  saving={saveBatch.isPending}
+                  canDelete={canDelete}
+                  notify={notify}
+                  onNewEmployee={() => {
+                    setForm(emptyForm);
+                    setMode("new");
+                  }}
+                  onSave={async (batch) => {
+                    await saveBatch.mutateAsync(batch);
+                    notify("Payroll batch saved.");
+                  }}
+                  onStatus={(id: string, status: PayrollBatchStatus) =>
+                    updateBatchStatus.mutateAsync({ id, status })
+                  }
+                  onDelete={(id) =>
+                    deleteBatch.mutate(id, {
+                      onSuccess: () => notify("Payroll batch deleted."),
+                      onError: (e) => notify((e as Error).message, "warn"),
+                    })
+                  }
+                />
+              )}
 
-            {tab === "advances" && (
-              <AdvancesTab
-                employees={employees}
-                batches={batches}
-                advances={advances}
-                saving={saveAdvance.isPending}
-                canDelete={canDelete}
-                notify={notify}
-                onSave={(tx, done) =>
-                  saveAdvance.mutate(tx, {
-                    onSuccess: () => {
-                      notify("Advance saved.");
-                      done();
-                    },
-                    onError: (e) => notify((e as Error).message, "warn"),
-                  })
-                }
-                onDelete={(id) =>
-                  deleteAdvance.mutate(id, {
-                    onSuccess: () => notify("Advance deleted."),
-                    onError: (e) => notify((e as Error).message, "warn"),
-                  })
-                }
-              />
-            )}
-            {tab === "history" && (
-              <HistoryTab employees={employees} batches={batches} advances={advances} />
-            )}
-            {tab === "slips" && (
-              <SlipsTab employees={employees} batches={batches} notify={notify} />
-            )}
-            {tab === "cost" && <CostTab employees={employees} notify={notify} />}
-            {tab === "audit" && canDelete && <AuditHistoryTab />}
-          </main>
+              {tab === "advances" && (
+                <AdvancesTab
+                  employees={employees}
+                  batches={batches}
+                  advances={advances}
+                  saving={saveAdvance.isPending}
+                  canDelete={canDelete}
+                  notify={notify}
+                  onSave={(tx, done) =>
+                    saveAdvance.mutate(tx, {
+                      onSuccess: () => {
+                        notify("Advance saved.");
+                        done();
+                      },
+                      onError: (e) => notify((e as Error).message, "warn"),
+                    })
+                  }
+                  onDelete={(id) =>
+                    deleteAdvance.mutate(id, {
+                      onSuccess: () => notify("Advance deleted."),
+                      onError: (e) => notify((e as Error).message, "warn"),
+                    })
+                  }
+                />
+              )}
+              {tab === "history" && (
+                <HistoryTab employees={employees} batches={batches} advances={advances} />
+              )}
+              {tab === "slips" && (
+                <SlipsTab employees={employees} batches={batches} notify={notify} />
+              )}
+              {tab === "cost" && <CostTab employees={employees} notify={notify} />}
+              {tab === "audit" && canDelete && <AuditHistoryTab />}
+            </main>
+          </Suspense>
 
           {tab === "employees" && (
             <button

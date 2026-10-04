@@ -149,13 +149,11 @@ export function useBatches(month?: string, enabled = true) {
           batchQuery = batchQuery.eq("month", month);
           lineQuery = lineQuery.eq("month", month);
         }
-        const [
-          { data: batchPage, error: batchError },
-          { data: linePage, error: lineError },
-        ] = await Promise.all([
-          batchQuery.range(start, start + pageSize - 1),
-          lineQuery.range(start, start + pageSize - 1),
-        ]);
+        const [{ data: batchPage, error: batchError }, { data: linePage, error: lineError }] =
+          await Promise.all([
+            batchQuery.range(start, start + pageSize - 1),
+            lineQuery.range(start, start + pageSize - 1),
+          ]);
         if (batchError) throw batchError;
         if (lineError) throw lineError;
         batches.push(...(batchPage ?? []));
@@ -412,12 +410,11 @@ export function useAdvances() {
           .order("id", { ascending: false })
           .range(start, start + pageSize - 1);
         if (error) throw error;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         records.push(
-          ...(data ?? []).map((a: any) => ({
+          ...((data ?? []) as Tables<"advance_transactions">[]).map((a) => ({
             id: String(a.id),
             employee_id: Number(a.employee_id),
-            date: a.date,
+            date: a.date ?? "",
             amount: Number(a.amount),
             reason: a.reason ?? "",
             payment_method: a.payment_method ?? "Cash",

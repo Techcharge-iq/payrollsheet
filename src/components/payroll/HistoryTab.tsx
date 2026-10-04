@@ -86,7 +86,10 @@ export function HistoryTab({ employees, batches, advances }: Props) {
 
       {employee && (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          <section
+            className="mobile-metric-grid grid grid-cols-2 gap-3 lg:grid-cols-5"
+            aria-label={`${employee.name} payroll totals`}
+          >
             {[
               { label: "Months recorded", value: String(rows.length) },
               { label: "Total hours", value: fmt(totals.hours) },
@@ -94,14 +97,17 @@ export function HistoryTab({ employees, batches, advances }: Props) {
               { label: "Total paid", value: fmt(totals.paid) },
               { label: "Balance due", value: fmt(totals.balance) },
             ].map((s) => (
-              <div key={s.label} className={card + " p-3.5"}>
+              <div
+                key={s.label}
+                className={`${card} mobile-metric p-3.5${s.label === "Balance due" && totals.balance > 0 ? " mobile-metric-alert" : ""}`}
+              >
                 <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
                   {s.label}
                 </p>
-                <p className="text-xl font-extrabold text-navy">{s.value}</p>
+                <strong className="text-xl font-extrabold text-navy">{s.value}</strong>
               </div>
             ))}
-          </div>
+          </section>
 
           <p className="rounded-lg border border-gold/40 bg-gold/10 px-3 py-2 text-xs font-medium text-slate-700">
             Advance outstanding for {employee.name}:{" "}

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, Eye, Pencil, Plus, Search, Users } from "lucide-react";
+import { ChevronRight, Eye, Pencil, Plus, Search, Users, X } from "lucide-react";
 import { TRADES, fmt, type Employee, type PayrollBatch } from "@/lib/payroll";
 import { btnGold, btnIcon, btnOutline, card, input, select } from "./ui";
 
@@ -46,19 +46,28 @@ export function EmployeesTab({ employees, loading, onNew, onView, onEdit }: Prop
 
   const selected = employees.find((e) => String(e.id) === selectedId) || null;
   const activeCount = employees.filter((e) => e.status === "Active").length;
+  const holidayCount = employees.filter((e) => e.status === "Holiday").length;
+  const cancelledCount = employees.filter((e) => e.status === "Cancelled").length;
+  const hasFilters = Boolean(search.trim()) || tradeFilter !== "ALL" || statusFilter !== "ALL";
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:hidden">
-        <div className="mobile-metric mobile-metric-primary">
-          <p>Active staff</p>
-          <strong>{activeCount}</strong>
-        </div>
-        <div className="mobile-metric">
-          <p>Total employees</p>
-          <strong>{employees.length}</strong>
-        </div>
-      </div>
+      <section
+        className="mobile-metric-grid grid grid-cols-2 gap-3 sm:grid-cols-4"
+        aria-label="Employee summary"
+      >
+        {[
+          { label: "Active staff", value: activeCount, style: "mobile-metric-primary" },
+          { label: "On holiday", value: holidayCount, style: "" },
+          { label: "Cancelled", value: cancelledCount, style: "" },
+          { label: "Total employees", value: employees.length, style: "" },
+        ].map((item) => (
+          <div key={item.label} className={`${card} mobile-metric p-3.5 ${item.style}`}>
+            <p>{item.label}</p>
+            <strong>{item.value}</strong>
+          </div>
+        ))}
+      </section>
       <div className={card + " hidden flex-col gap-3 p-4 sm:flex sm:flex-row sm:items-center"}>
         <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
           <select
@@ -128,6 +137,20 @@ export function EmployeesTab({ employees, loading, onNew, onView, onEdit }: Prop
           <option>Holiday</option>
           <option>Cancelled</option>
         </select>
+        {hasFilters && (
+          <button
+            type="button"
+            onClick={() => {
+              setSearch("");
+              setTradeFilter("ALL");
+              setStatusFilter("ALL");
+            }}
+            className={btnOutline + " justify-center"}
+            aria-label="Clear employee filters"
+          >
+            <X size={15} /> Clear filters
+          </button>
+        )}
       </div>
 
       <div className="space-y-3 sm:hidden">
