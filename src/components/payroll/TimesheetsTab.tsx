@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  CalendarDays,
   Check,
+  ChevronDown,
   Clock3,
   Copy,
   HardHat,
+  Pencil,
+  Plus,
   Search,
+  Trash2,
   Users,
-  UserRoundPlus,
   X,
 } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
 import { useTimesheetsForDate, type TimesheetRecord } from "@/lib/payroll-data";
-import { btnGold, btnOutline, card, input, inputSm } from "./ui";
+import { btnGold, btnIcon, btnOutline, card, input, select } from "./ui";
 
 interface Props {
   employees: Employee[];
@@ -24,114 +28,101 @@ interface Props {
   onDirtyChange?: (dirty: boolean) => void;
 }
 
-type AttendanceStatus = "PRESENT" | "ABSENT" | "LEAVE" | "HOLIDAY" | "WEEKLY_OFF" | "HALF_DAY";
-type AttendanceFilter = "All" | "Review" | AttendanceStatus;
+type AttendanceStatus = TimesheetRecord["status"];
 
-interface AttendanceRow {
-  employeeId: number;
-  site: string;
-  foreman: string;
+interface AttendanceDraft {
   status: AttendanceStatus;
   inTime: string;
   outTime: string;
   breakHours: string;
-  notes: string;
   overtime: string;
+  notes: string;
 }
 
-const today = () => {
+interface AttendanceBatch {
+  key: string;
+  site: string;
+  foreman: string;
+  entries: TimesheetRecord[];
+}
+
+const ATTENDANCE_STATUSES: Array<{ value: AttendanceStatus; label: string }> = [
+  { value: "PRESENT", label: "Present" },
+  { value: "HALF_DAY", label: "Half day" },
+  { value: "ABSENT", label: "Absent" },
+  { value: "LEAVE", label: "Leave" },
+  { value: "HOLIDAY", label: "Holiday" },
+  { value: "WEEKLY_OFF", label: "Weekly off" },
+];
+
+function today() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-};
-
-function parseLocalTime(value: string) {
-  if (!value) return null;
-  const [hours = Number.NaN, minutes = Number.NaN] = value.split(":").map(Number);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-  return hours * 60 + minutes;
 }
 
-function roundHours(value: number) {
-  return Number(Math.max(0, value).toFixed(3));
-}
-
-function hoursFor(row: Pick<AttendanceRow, "inTime" | "outTime" | "breakHours">) {
-  const start = parseLocalTime(row.inTime);
-  const end = parseLocalTime(row.outTime);
-  if (start === null || end === null || end <= start) return 0;
-  const shiftMinutes = end - start;
-  const breakMinutes = Number(row.breakHours) * 60 || 0;
-  return roundHours((shiftMinutes - breakMinutes) / 60);
-}
-
-function regularHoursFor(row: AttendanceRow) {
-  return roundHours(Math.max(0, hoursFor(row) - overtimeFor(row)));
-}
-
-function overtimeFor(row: Pick<AttendanceRow, "overtime">) {
-  const overtime = Number(row.overtime || 0);
-  if (!Number.isFinite(overtime) || overtime < 0) return 0;
-  return overtime;
-}
-
-function isReviewRow(row: AttendanceRow) {
-  if (row.status === "PRESENT" || row.status === "HALF_DAY") {
-    return !row.inTime || !row.outTime || hoursFor(row) <= 0;
-  }
-  return false;
-}
-
-function exceptionCount(row: AttendanceRow) {
-  if (row.status === "ABSENT" || row.status === "LEAVE") return 1;
-  if (!row.site.trim() || !row.foreman.trim()) return 1;
-  if (isReviewRow(row)) return 1;
-  return 0;
-}
-
-function toTimesheetRow(employee: Employee, row: AttendanceRow, workDate: string) {
-  const worked = row.status === "PRESENT" || row.status === "HALF_DAY";
-  return {
-    employee_id: employee.id,
-    site: row.site.trim() || "Unassigned",
-    foreman: row.foreman.trim() || "Unassigned",
-    work_date: workDate,
-    status: row.status,
-    in_time: worked ? row.inTime || null : null,
-    out_time: worked ? row.outTime || null : null,
-    break_hours: worked ? Number(row.breakHours) || 0 : 0,
-    overtime_hours: worked ? Number(row.overtime) || 0 : 0,
-    remarks: row.notes.trim() || null,
-  } satisfies Omit<TimesheetRecord, "id" | "created_at" | "total_hours" | "regular_hours">;
-}
-
-function employeeLabel(employee: Employee) {
-  return `${employee.name} — ${employee.trade}`;
-}
-
-function initialRow(
-  employee: Employee,
-  _workDate: string,
-  site: string,
-  foreman: string,
-): AttendanceRow {
-  return {
-    employeeId: employee.id,
-    site,
-    foreman,
-    status: "PRESENT",
-    inTime: "",
-    outTime: "",
-    breakHours: "0",
-    notes: "",
-    overtime: "0",
-  };
-}
-
-function previousCalendarDate(dateValue: string) {
-  const [year, month, day] = dateValue.split("-").map(Number);
+function previousCalendarDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
   const date = new Date(Date.UTC(year!, month! - 1, day!));
   date.setUTCDate(date.getUTCDate() - 1);
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+function batchKey(site: string, foreman: string) {
+  return JSON.stringify([site.trim().toLowerCase(), foreman.trim().toLowerCase()]);
+}
+
+function defaultAttendance(): AttendanceDraft {
+  return {
+    status: "PRESENT",
+    inTime: "08:00",
+    outTime: "17:00",
+    breakHours: "1",
+    overtime: "0",
+    notes: "",
+  };
+}
+
+function attendanceFromRecord(entry: TimesheetRecord): AttendanceDraft {
+  return {
+    status: entry.status,
+    inTime: entry.in_time?.slice(0, 5) ?? "",
+    outTime: entry.out_time?.slice(0, 5) ?? "",
+    breakHours: String(entry.break_hours ?? 0),
+    overtime: String(entry.overtime_hours ?? 0),
+    notes: entry.remarks ?? "",
+  };
+}
+
+function batchGroups(entries: TimesheetRecord[]): AttendanceBatch[] {
+  const groups = new Map<string, AttendanceBatch>();
+  for (const entry of entries) {
+    const key = batchKey(entry.site, entry.foreman);
+    const group = groups.get(key) ?? {
+      key,
+      site: entry.site,
+      foreman: entry.foreman,
+      entries: [],
+    };
+    group.entries.push(entry);
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort(
+    (a, b) => a.site.localeCompare(b.site) || a.foreman.localeCompare(b.foreman),
+  );
+}
+
+function worked(status: AttendanceStatus) {
+  return status === "PRESENT" || status === "HALF_DAY";
+}
+
+function hoursFor(draft: AttendanceDraft) {
+  if (!worked(draft.status) || !draft.inTime || !draft.outTime) return 0;
+  const [inHour, inMinute] = draft.inTime.split(":").map(Number);
+  const [outHour, outMinute] = draft.outTime.split(":").map(Number);
+  const start = inHour! * 60 + inMinute!;
+  const end = outHour! * 60 + outMinute!;
+  if (end <= start) return 0;
+  return Math.max(0, (end - start) / 60 - (Number(draft.breakHours) || 0));
 }
 
 export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange }: Props) {
@@ -140,15 +131,19 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   const timesheetsQuery = useTimesheetsForDate(workDate);
   const previousTimesheetsQuery = useTimesheetsForDate(previousDate);
   const timesheets = useMemo(() => timesheetsQuery.data ?? [], [timesheetsQuery.data]);
-  const [siteFilter, setSiteFilter] = useState("Al Khoud");
-  const [crewName, setCrewName] = useState("All foremen");
-  const [assignmentForeman, setAssignmentForeman] = useState("");
-  const [search, setSearch] = useState("");
-  const [selectedStatus, setSelectedStatus] = useState<AttendanceFilter>("All");
+  const previousEntries = useMemo(
+    () => previousTimesheetsQuery.data ?? [],
+    [previousTimesheetsQuery.data],
+  );
+  const [site, setSite] = useState("");
+  const [foreman, setForeman] = useState("");
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
-  const [rows, setRows] = useState<Record<number, AttendanceRow>>({});
-  const [dirtyIds, setDirtyIds] = useState<Set<number>>(() => new Set());
+  const [attendance, setAttendance] = useState<Record<number, AttendanceDraft>>({});
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [employeePickerOpen, setEmployeePickerOpen] = useState(false);
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [copyPickerOpen, setCopyPickerOpen] = useState(false);
 
   const activeEmployees = useMemo(
     () =>
@@ -157,325 +152,260 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
         .sort((a, b) => a.name.localeCompare(b.name)),
     [employees],
   );
-
-  const siteOptions = useMemo(
-    () =>
-      [
-        ...new Set([
-          ...timesheets.map((entry) => entry.site).filter(Boolean),
-          "Al Khoud",
-          "Barka",
-          "Seeb",
-        ]),
-      ].sort(),
-    [timesheets],
+  const employeeById = useMemo(
+    () => new Map(employees.map((employee) => [employee.id, employee])),
+    [employees],
   );
-  const foremanOptions = useMemo(
+  const savedBatches = useMemo(() => batchGroups(timesheets), [timesheets]);
+  const previousBatches = useMemo(() => batchGroups(previousEntries), [previousEntries]);
+  const selectedEmployees = useMemo(
     () =>
-      [
-        ...new Set([
-          ...timesheets
-            .filter((entry) => entry.work_date === workDate)
-            .map((entry) => entry.foreman)
-            .filter(Boolean),
-          ...employees
-            .filter((employee) => employee.trade === "FORMAN")
-            .map((employee) => employee.name),
-        ]),
-      ].sort((a, b) => a.localeCompare(b)),
-    [employees, timesheets, workDate],
+      selectedIds.flatMap((id) => {
+        const employee = employeeById.get(id);
+        return employee ? [employee] : [];
+      }),
+    [employeeById, selectedIds],
   );
-
-  const filteredEmployees = useMemo(() => {
-    const query = search.trim().toLowerCase();
+  const filteredPickerEmployees = useMemo(() => {
+    const query = employeeSearch.trim().toLowerCase();
     return activeEmployees.filter((employee) => {
-      const row = rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "");
-      if (crewName !== "All foremen" && row.foreman !== crewName) return false;
-      if (selectedStatus === "Review" && !isReviewRow(row)) return false;
       if (
-        selectedStatus !== "All" &&
-        selectedStatus !== "Review" &&
-        row.status !== selectedStatus
+        query &&
+        ![employee.name, employee.trade, employee.id_number, String(employee.id)]
+          .join(" ")
+          .toLowerCase()
+          .includes(query)
       ) {
         return false;
       }
-      if (!query) return true;
-      const haystack = [employee.name, employee.trade, employee.id_number, String(employee.id)]
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(query);
+      const assigned = timesheets.find((entry) => entry.employee_id === employee.id);
+      return (
+        !assigned ||
+        (editingKey !== null && batchKey(assigned.site, assigned.foreman) === editingKey)
+      );
     });
-  }, [activeEmployees, crewName, rows, search, selectedStatus, siteFilter, workDate]);
-
-  const selectedEmployee = useMemo(
-    () => activeEmployees.find((employee) => employee.id === selectedEmployeeId) ?? null,
-    [activeEmployees, selectedEmployeeId],
+  }, [activeEmployees, editingKey, employeeSearch, timesheets]);
+  const duplicateAssignments = useMemo(
+    () =>
+      selectedEmployees.flatMap((employee) => {
+        const assigned = timesheets.find((entry) => entry.employee_id === employee.id);
+        if (
+          !assigned ||
+          (editingKey !== null && batchKey(assigned.site, assigned.foreman) === editingKey)
+        ) {
+          return [];
+        }
+        return [{ employee, assigned }];
+      }),
+    [editingKey, selectedEmployees, timesheets],
   );
-
-  const selectedRow = selectedEmployee ? rows[selectedEmployee.id] : null;
-
-  useEffect(() => {
-    const patch: Record<number, AttendanceRow> = {};
-    const entriesByEmployee = new Map<number, TimesheetRecord>();
-    for (const entry of timesheets) {
-      if (entry.work_date === workDate) {
-        entriesByEmployee.set(entry.employee_id, entry);
-      }
-    }
-
-    for (const employee of activeEmployees) {
-      const match = entriesByEmployee.get(employee.id);
-      const next: AttendanceRow = {
-        employeeId: employee.id,
-        site: match?.site ?? siteFilter,
-        foreman: match?.foreman ?? "",
-        status: match?.status ?? "PRESENT",
-        inTime: match?.in_time ?? "",
-        outTime: match?.out_time ?? "",
-        breakHours: String(match?.break_hours ?? 0),
-        notes: match?.remarks ?? "",
-        overtime: String(match?.overtime_hours ?? 0),
-      };
-      patch[employee.id] = next;
-    }
-
-    setRows(patch);
-    setDirtyIds(new Set());
-  }, [activeEmployees, siteFilter, workDate, timesheets]);
+  const selectedCount = selectedIds.length;
 
   useEffect(() => {
-    onDirtyChange?.(dirtyIds.size > 0);
-  }, [dirtyIds, onDirtyChange]);
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   useEffect(() => {
-    if (dirtyIds.size === 0) return;
+    if (!dirty) return;
     const protectUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", protectUnload);
     return () => window.removeEventListener("beforeunload", protectUnload);
-  }, [dirtyIds]);
+  }, [dirty]);
 
-  const restoreSavedRows = () => {
-    const entriesByEmployee = new Map(
-      timesheets.map((entry) => [entry.employee_id, entry] as const),
-    );
-    const restored: Record<number, AttendanceRow> = {};
-    for (const employee of activeEmployees) {
-      const entry = entriesByEmployee.get(employee.id);
-      restored[employee.id] = {
-        employeeId: employee.id,
-        site: entry?.site ?? siteFilter,
-        foreman: entry?.foreman ?? "",
-        status: entry?.status ?? "PRESENT",
-        inTime: entry?.in_time ?? "",
-        outTime: entry?.out_time ?? "",
-        breakHours: String(entry?.break_hours ?? 0),
-        notes: entry?.remarks ?? "",
-        overtime: String(entry?.overtime_hours ?? 0),
-      };
-    }
-    setRows(restored);
-    setDirtyIds(new Set());
+  const resetForm = () => {
+    setSite("");
+    setForeman("");
+    setSelectedIds([]);
+    setAttendance({});
+    setEditingKey(null);
+    setDirty(false);
+    setEmployeeSearch("");
+    setEmployeePickerOpen(false);
   };
 
   const confirmDiscard = () => {
-    if (!dirtyIds.size) return true;
-    if (!window.confirm("Discard unsaved attendance changes?")) return false;
-    restoreSavedRows();
-    return true;
+    if (!dirty || window.confirm("Discard unsaved attendance batch changes?")) {
+      resetForm();
+      return true;
+    }
+    return false;
   };
 
-  const exceptionSummary = useMemo(() => {
-    const total = filteredEmployees.length;
-    const missing = filteredEmployees.filter((employee) => {
-      const row = rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "");
-      return exceptionCount(row) > 0 && row.status !== "LEAVE" && row.status !== "ABSENT";
-    }).length;
-    const leave = filteredEmployees.filter(
-      (employee) =>
-        (rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "")).status === "LEAVE",
-    ).length;
-    const absent = filteredEmployees.filter(
-      (employee) =>
-        (rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "")).status === "ABSENT",
-    ).length;
-    const overtime = filteredEmployees.filter((employee) => {
-      const row = rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "");
-      return overtimeFor(row) > 0;
-    }).length;
-    return { total, missing, leave, absent, overtime };
-  }, [filteredEmployees, rows, siteFilter, workDate]);
+  const startNewBatch = () => {
+    if (dirty && !confirmDiscard()) return;
+    resetForm();
+    setCopyPickerOpen(false);
+  };
 
-  const toggleSelection = (employeeId: number) => {
-    setSelectedIds((current) =>
-      current.includes(employeeId)
-        ? current.filter((value) => value !== employeeId)
-        : [...current, employeeId],
+  const editBatch = (batch: AttendanceBatch) => {
+    if (dirty && !confirmDiscard()) return;
+    setSite(batch.site);
+    setForeman(batch.foreman);
+    setEditingKey(batch.key);
+    setSelectedIds(batch.entries.map((entry) => entry.employee_id));
+    setAttendance(
+      Object.fromEntries(
+        batch.entries.map((entry) => [entry.employee_id, attendanceFromRecord(entry)]),
+      ),
     );
-    setSelectedEmployeeId(employeeId);
+    setDirty(false);
+    setCopyPickerOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const updateRow = (employeeId: number, patch: Partial<AttendanceRow>) => {
-    setRows((current) => {
-      const base =
-        current[employeeId] ??
-        initialRow(
-          activeEmployees.find((employee) => employee.id === employeeId)!,
-          workDate,
-          siteFilter,
-          "",
-        );
-      const draft = { ...base, ...patch, employeeId };
-      if (patch.status) {
-        draft.status = patch.status;
-        if (
-          patch.status === "ABSENT" ||
-          patch.status === "LEAVE" ||
-          patch.status === "HOLIDAY" ||
-          patch.status === "WEEKLY_OFF"
-        ) {
-          draft.inTime = "";
-          draft.outTime = "";
-          draft.breakHours = "0";
-          draft.overtime = "0";
-        }
-      }
-      setDirtyIds((dirty) => new Set(dirty).add(employeeId));
-      return { ...current, [employeeId]: draft };
-    });
-  };
-
-  const currentRecords = filteredEmployees.map((employee) => ({
-    employee,
-    row: rows[employee.id] ?? initialRow(employee, workDate, siteFilter, ""),
-  }));
-
-  const saveAll = async () => {
-    const visibleIds = new Set(filteredEmployees.map((employee) => employee.id));
-    const dirtyRecords = activeEmployees
-      .filter((employee) => dirtyIds.has(employee.id) && visibleIds.has(employee.id))
-      .map((employee) => ({
-        employee,
-        row: rows[employee.id] ?? initialRow(employee, workDate, siteFilter, ""),
-      }));
-    const invalid = dirtyRecords.filter(
-      ({ employee, row }) =>
-        ((row.status === "PRESENT" || row.status === "HALF_DAY") &&
-          (!row.inTime ||
-            !row.outTime ||
-            parseLocalTime(row.outTime) === null ||
-            parseLocalTime(row.inTime) === null ||
-            parseLocalTime(row.outTime)! <= parseLocalTime(row.inTime)! ||
-            !Number.isFinite(Number(row.breakHours)) ||
-            Number(row.breakHours) < 0 ||
-            Number(row.breakHours) > hoursFor(row) ||
-            Number(row.overtime) > hoursFor(row))) ||
-        !Number.isFinite(Number(row.overtime)) ||
-        Number(row.overtime) < 0,
-    );
-    if (invalid.length) {
+  const toggleEmployee = (employee: Employee) => {
+    const isSelected = selectedIds.includes(employee.id);
+    if (
+      isSelected &&
+      editingKey &&
+      timesheets.some(
+        (entry) =>
+          entry.employee_id === employee.id && batchKey(entry.site, entry.foreman) === editingKey,
+      )
+    ) {
       notify(
-        `${invalid.length} attendance row(s) have invalid time, break, or overtime values.`,
+        "Existing batch members stay assigned while editing; update the attendance details instead.",
         "warn",
       );
       return;
     }
-    const payload = dirtyRecords.map(({ employee, row }) =>
-      toTimesheetRow(
-        employee,
-        {
-          ...row,
-          site: row.site || siteFilter || "Unassigned",
-          foreman: row.foreman || "Unassigned",
-        },
-        workDate,
+    if (!isSelected) {
+      const assigned = timesheets.find((entry) => entry.employee_id === employee.id);
+      if (assigned && (!editingKey || batchKey(assigned.site, assigned.foreman) !== editingKey)) {
+        notify(
+          `${employee.name} is already assigned to ${assigned.site} with ${assigned.foreman} on this date.`,
+          "warn",
+        );
+        return;
+      }
+    }
+
+    setSelectedIds((current) =>
+      isSelected ? current.filter((id) => id !== employee.id) : [...current, employee.id],
+    );
+    if (!isSelected) {
+      const existing = timesheets.find((entry) => entry.employee_id === employee.id);
+      setAttendance((current) => ({
+        ...current,
+        [employee.id]: existing ? attendanceFromRecord(existing) : defaultAttendance(),
+      }));
+    }
+    setDirty(true);
+  };
+
+  const updateAttendance = (employeeId: number, patch: Partial<AttendanceDraft>) => {
+    setAttendance((current) => {
+      const next = { ...(current[employeeId] ?? defaultAttendance()), ...patch };
+      if (patch.status && !worked(patch.status)) {
+        next.inTime = "";
+        next.outTime = "";
+        next.breakHours = "0";
+        next.overtime = "0";
+      }
+      return { ...current, [employeeId]: next };
+    });
+    setDirty(true);
+  };
+
+  const loadCopiedBatch = (batch: AttendanceBatch) => {
+    if (dirty && !confirmDiscard()) return;
+    setSite(batch.site);
+    setForeman(batch.foreman);
+    setEditingKey(null);
+    setSelectedIds(batch.entries.map((entry) => entry.employee_id));
+    setAttendance(
+      Object.fromEntries(
+        batch.entries.map((entry) => [entry.employee_id, attendanceFromRecord(entry)]),
       ),
     );
+    setDirty(true);
+    setCopyPickerOpen(false);
+    notify(
+      `Copied ${batch.entries.length} worker(s) from ${previousDate}. Review the batch and save it for ${workDate}.`,
+    );
+  };
 
-    if (!payload.length) {
-      notify("There are no attendance entries to save for this filtered view.", "warn");
+  const saveBatch = async () => {
+    const cleanSite = site.trim();
+    const cleanForeman = foreman.trim();
+    if (!cleanSite || !cleanForeman) {
+      notify("Enter both a site and a foreman before saving the attendance batch.", "warn");
+      return;
+    }
+    if (!selectedIds.length) {
+      notify("Select at least one employee for this attendance batch.", "warn");
+      return;
+    }
+    if (duplicateAssignments.length) {
+      notify(
+        `${duplicateAssignments.map(({ employee }) => employee.name).join(", ")} already have attendance at another site or foreman on this date. Edit their existing batch first.`,
+        "warn",
+      );
       return;
     }
 
+    const invalid = selectedEmployees.filter((employee) => {
+      const row = attendance[employee.id] ?? defaultAttendance();
+      if (!worked(row.status)) return false;
+      const start = row.inTime.split(":").map(Number);
+      const end = row.outTime.split(":").map(Number);
+      const startMinutes = start[0]! * 60 + start[1]!;
+      const endMinutes = end[0]! * 60 + end[1]!;
+      const breakHours = Number(row.breakHours);
+      const overtime = Number(row.overtime);
+      const shiftHours = (endMinutes - startMinutes) / 60;
+      return (
+        !row.inTime ||
+        !row.outTime ||
+        endMinutes <= startMinutes ||
+        !Number.isFinite(breakHours) ||
+        breakHours < 0 ||
+        breakHours > shiftHours ||
+        !Number.isFinite(overtime) ||
+        overtime < 0 ||
+        overtime > hoursFor(row)
+      );
+    });
+    if (invalid.length) {
+      notify(
+        `Check the time, break, and overtime values for ${invalid.map((employee) => employee.name).join(", ")}.`,
+        "warn",
+      );
+      return;
+    }
+
+    const payload = selectedEmployees.map((employee) => {
+      const row = attendance[employee.id] ?? defaultAttendance();
+      const doesWork = worked(row.status);
+      return {
+        employee_id: employee.id,
+        site: cleanSite,
+        foreman: cleanForeman,
+        work_date: workDate,
+        status: row.status,
+        in_time: doesWork ? row.inTime : null,
+        out_time: doesWork ? row.outTime : null,
+        break_hours: doesWork ? Number(row.breakHours) || 0 : 0,
+        overtime_hours: doesWork ? Number(row.overtime) || 0 : 0,
+        remarks: row.notes.trim() || null,
+      } satisfies Omit<TimesheetRecord, "id" | "created_at" | "total_hours" | "regular_hours">;
+    });
+
     try {
       await onSave(payload);
-      const savedIds = new Set(payload.map((entry) => entry.employee_id));
-      setDirtyIds((dirty) => new Set([...dirty].filter((employeeId) => !savedIds.has(employeeId))));
-      notify(`${payload.length} attendance entr${payload.length === 1 ? "y" : "ies"} saved.`);
+      resetForm();
+      notify(
+        `${payload.length} employee attendance record(s) saved for ${cleanSite} · ${cleanForeman}.`,
+      );
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Could not save attendance entries.", "warn");
+      notify(
+        error instanceof Error ? error.message : "Could not save this attendance batch.",
+        "warn",
+      );
     }
-  };
-
-  const applyBulkAction = (
-    action: "present" | "absent" | "leave" | "in" | "out" | "break" | "shift" | "overtime",
-    value?: string,
-  ) => {
-    const visibleIds = new Set(filteredEmployees.map((employee) => employee.id));
-    const targets = selectedIds.length
-      ? selectedIds.filter((employeeId) => visibleIds.has(employeeId))
-      : filteredEmployees.map((employee) => employee.id);
-    const applicableTargets = targets.filter((employeeId) => {
-      if (action !== "overtime") return true;
-      const employee = activeEmployees.find((entry) => entry.id === employeeId);
-      const row =
-        rows[employeeId] ?? (employee ? initialRow(employee, workDate, siteFilter, "") : null);
-      return row?.status === "PRESENT" || row?.status === "HALF_DAY";
-    });
-    if (applicableTargets.length !== targets.length) {
-      notify("Overtime was skipped for non-work attendance statuses.", "warn");
-    }
-    setRows((current) => {
-      const next = { ...current };
-      for (const employeeId of applicableTargets) {
-        const employee = activeEmployees.find((entry) => entry.id === employeeId);
-        if (!employee) continue;
-        const base = next[employeeId] ?? initialRow(employee, workDate, siteFilter, "");
-        const draft = { ...base };
-        switch (action) {
-          case "present":
-            draft.status = "PRESENT";
-            break;
-          case "absent":
-            draft.status = "ABSENT";
-            draft.inTime = "";
-            draft.outTime = "";
-            draft.breakHours = "0";
-            draft.overtime = "0";
-            break;
-          case "leave":
-            draft.status = "LEAVE";
-            draft.inTime = "";
-            draft.outTime = "";
-            draft.breakHours = "0";
-            draft.overtime = "0";
-            break;
-          case "in":
-            draft.inTime = value ?? "08:00";
-            break;
-          case "out":
-            draft.outTime = value ?? "17:00";
-            break;
-          case "break":
-            draft.breakHours = value ?? "1";
-            break;
-          case "shift":
-            draft.inTime = value ? (value.split("-")[0] ?? "08:00") : "08:00";
-            draft.outTime = value ? (value.split("-")[1] ?? "17:00") : "17:00";
-            break;
-          case "overtime":
-            draft.overtime = value ?? "2";
-            break;
-          default:
-            break;
-        }
-        next[employeeId] = draft;
-      }
-      setDirtyIds((dirty) => new Set([...dirty, ...applicableTargets]));
-      return next;
-    });
   };
 
   const copyPreviousDay = () => {
@@ -490,633 +420,540 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
       );
       return;
     }
-    const previousEntries = (previousTimesheetsQuery.data ?? []).filter(
-      (entry) => !siteFilter || !entry.site || entry.site === siteFilter,
-    );
-
-    if (!previousEntries.length) {
-      notify("No previous-day attendance was found for this site.", "warn");
+    if (!previousBatches.length) {
+      notify(`No attendance batches were found for ${previousDate}.`, "warn");
       return;
     }
-
-    const currentSavedIds = new Set(
-      timesheets.filter((entry) => entry.work_date === workDate).map((entry) => entry.employee_id),
-    );
-    const copiedIds = previousEntries
-      .map((entry) => entry.employee_id)
-      .filter((employeeId) => activeEmployees.some((employee) => employee.id === employeeId));
-    const overwritten = copiedIds.filter(
-      (employeeId) => currentSavedIds.has(employeeId) || dirtyIds.has(employeeId),
-    ).length;
-    const confirmText =
-      `Copy ${previousDate} attendance to ${workDate} for ${copiedIds.length} employee(s)?` +
-      (overwritten
-        ? ` This will replace ${overwritten} existing saved or unsaved row(s) for the selected site.`
-        : "");
-    if (!window.confirm(confirmText)) return;
-
-    const nextRows = { ...rows };
-    for (const entry of previousEntries) {
-      const employee = activeEmployees.find((item) => item.id === entry.employee_id);
-      if (!employee) continue;
-      nextRows[employee.id] = {
-        employeeId: employee.id,
-        site: entry.site || siteFilter,
-        foreman: entry.foreman || "",
-        status: entry.status,
-        inTime: entry.in_time ?? "",
-        outTime: entry.out_time ?? "",
-        breakHours: String(entry.break_hours ?? 0),
-        notes: entry.remarks ?? "",
-        overtime: String(entry.overtime_hours ?? 0),
-      };
-    }
-    setRows(nextRows);
-    setDirtyIds((dirty) => new Set([...dirty, ...copiedIds]));
-    notify(
-      `Copied ${copiedIds.length} attendance row(s) from ${previousDate} to ${workDate}. Review and save them.`,
-    );
+    if (dirty && !confirmDiscard()) return;
+    setCopyPickerOpen((open) => !open);
   };
-
-  const loadCrew = () => {
-    const destination = filteredEmployees.map((employee) => employee.id);
-    setSelectedIds(destination);
-    setSelectedEmployeeId(destination[0] ?? null);
-    notify(`${destination.length} employee(s) loaded into the current crew.`);
-  };
-
-  const assignSelectedToBatch = (foreman: string) => {
-    if (!foreman) {
-      notify("Select a foreman before assigning employees to an attendance batch.", "warn");
-      return;
-    }
-    const visibleIds = new Set(filteredEmployees.map((employee) => employee.id));
-    const targets = selectedIds.length
-      ? selectedIds.filter((employeeId) => visibleIds.has(employeeId))
-      : [...visibleIds];
-    if (!targets.length) {
-      notify("Select at least one employee to assign to this attendance batch.", "warn");
-      return;
-    }
-    setRows((current) => {
-      const next = { ...current };
-      for (const employeeId of targets) {
-        const employee = activeEmployees.find((entry) => entry.id === employeeId);
-        if (!employee) continue;
-        const base = next[employeeId] ?? initialRow(employee, workDate, siteFilter, "");
-        next[employeeId] = { ...base, site: base.site || siteFilter, foreman };
-      }
-      return next;
-    });
-    setDirtyIds((dirty) => new Set([...dirty, ...targets]));
-    setCrewName(foreman);
-    setSelectedIds(targets);
-    setSelectedEmployeeId(targets[0] ?? null);
-    notify(`${targets.length} employee(s) assigned to ${foreman}'s attendance batch.`);
-  };
-
-  const selectedWithinRows = currentRecords.filter(({ employee }) =>
-    selectedIds.includes(employee.id),
-  );
-  const hasSelection = selectedIds.length > 0;
 
   return (
-    <section className="space-y-4">
-      <div
-        className={card + " flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between"}
-      >
+    <section className="space-y-5">
+      <div className={`${card} flex flex-wrap items-center justify-between gap-4 p-4`}>
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-navy-soft text-navy">
-            <Clock3 size={20} />
+            <CalendarDays size={20} />
           </div>
           <div>
-            <h2 className="font-display text-xl font-extrabold text-navy">Attendance workbench</h2>
+            <h2 className="font-display text-xl font-extrabold text-navy">Daily attendance</h2>
             <p className="text-xs text-muted-foreground">
-              Crew-based daily entry for 300+ employees
+              Create a site and foreman batch, then choose the workers for that day.
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-            Date
-            <input
-              type="date"
-              value={workDate}
-              onChange={(event) => {
-                if (confirmDiscard()) {
-                  setRows({});
-                  setSelectedIds([]);
-                  setWorkDate(event.target.value);
-                }
-              }}
-              className={input + " mt-1 min-w-[160px]"}
-            />
-          </label>
-          <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-            Site
-            <input
-              value={siteFilter}
-              onChange={(event) => {
-                if (confirmDiscard()) {
-                  setSelectedIds([]);
-                  setSiteFilter(event.target.value);
-                }
-              }}
-              list="site-options"
-              className={input + " mt-1 min-w-[160px]"}
-            />
-          </label>
-          <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-            Attendance batch
-            <select
-              value={crewName}
-              onChange={(event) => {
-                if (confirmDiscard()) {
-                  setSelectedIds([]);
-                  setCrewName(event.target.value);
-                }
-              }}
-              className={input + " mt-1 min-w-[140px]"}
-            >
-              <option value="All foremen">All foremen</option>
-              {foremanOptions.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <label className="block min-w-44 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+          Attendance date
+          <input
+            type="date"
+            value={workDate}
+            onChange={(event) => {
+              if (!event.target.value || event.target.value === workDate || !confirmDiscard())
+                return;
+              setWorkDate(event.target.value);
+              setCopyPickerOpen(false);
+            }}
+            className={`${input} mt-1`}
+          />
+        </label>
       </div>
 
-      <div className={card + " p-3"}>
-        <div className="grid gap-3 xl:grid-cols-[260px_minmax(0,1fr)_340px]">
-          <aside className="space-y-4 border-r border-border pr-0 xl:pr-3">
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                Operations
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={copyPreviousDay}
-                  className={btnOutline + " justify-center px-2 py-2 text-xs"}
-                >
-                  <Copy size={14} /> Copy previous day
-                </button>
-                <button
-                  type="button"
-                  onClick={loadCrew}
-                  className={btnOutline + " justify-center px-2 py-2 text-xs"}
-                >
-                  <Users size={14} /> Load crew
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyBulkAction("present")}
-                  className={btnOutline + " justify-center px-2 py-2 text-xs"}
-                >
-                  <Check size={14} /> Mark present
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyBulkAction("absent")}
-                  className={btnOutline + " justify-center px-2 py-2 text-xs"}
-                >
-                  <X size={14} /> Mark absent
-                </button>
+      {timesheetsQuery.error && (
+        <p className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm font-medium text-danger">
+          <AlertTriangle size={15} /> Could not load attendance: {timesheetsQuery.error.message}
+        </p>
+      )}
+
+      {timesheetsQuery.isLoading ? (
+        <div className={`${card} p-8 text-center text-sm text-muted-foreground`}>
+          Loading attendance for {workDate}…
+        </div>
+      ) : (
+        <>
+          <div className={`${card} space-y-4 p-4 sm:p-5`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-display text-lg font-bold text-navy">
+                  {editingKey ? "Edit attendance batch" : "Create attendance batch"}
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  One employee can only be assigned to one site per day.
+                </p>
               </div>
-              <label className="block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                Assign selected workers to batch
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={copyPreviousDay} className={btnOutline}>
+                  <Copy size={15} /> Copy previous day
+                </button>
+                {editingKey && (
+                  <button type="button" onClick={startNewBatch} className={btnOutline}>
+                    <Plus size={15} /> New batch
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {copyPickerOpen && (
+              <div className="rounded-xl border border-gold/40 bg-gold/10 p-3">
+                <p className="mb-2 text-xs font-bold text-navy">
+                  Choose a batch from {previousDate} to copy. It will be staged for {workDate};
+                  nothing is saved until you press Save batch.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {previousBatches.map((batch) => (
+                    <button
+                      key={batch.key}
+                      type="button"
+                      onClick={() => loadCopiedBatch(batch)}
+                      className={btnOutline}
+                    >
+                      <Copy size={14} />
+                      {batch.site} · {batch.foreman} · {batch.entries.length} workers
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-semibold text-slate-600">
+                Site / project
                 <input
-                  value={assignmentForeman}
-                  onChange={(event) => setAssignmentForeman(event.target.value)}
-                  list="foreman-options"
-                  placeholder="Enter or choose foreman…"
-                  className={input + " mt-1"}
+                  value={site}
+                  onChange={(event) => {
+                    setSite(event.target.value);
+                    setDirty(true);
+                  }}
+                  placeholder="Enter or choose a site"
+                  list="attendance-sites"
+                  className={`${input} mt-1`}
                 />
               </label>
+              <label className="text-xs font-semibold text-slate-600">
+                Foreman
+                <input
+                  value={foreman}
+                  onChange={(event) => {
+                    setForeman(event.target.value);
+                    setDirty(true);
+                  }}
+                  placeholder="Enter or choose a foreman"
+                  list="attendance-foremen"
+                  className={`${input} mt-1`}
+                />
+              </label>
+            </div>
+
+            <datalist id="attendance-sites">
+              {[...new Set(timesheets.map((entry) => entry.site).filter(Boolean))]
+                .sort()
+                .map((name) => (
+                  <option key={name} value={name} />
+                ))}
+            </datalist>
+            <datalist id="attendance-foremen">
+              {[
+                ...new Set([
+                  ...timesheets.map((entry) => entry.foreman).filter(Boolean),
+                  ...employees
+                    .filter((employee) => employee.trade === "FORMAN")
+                    .map((employee) => employee.name),
+                ]),
+              ]
+                .sort()
+                .map((name) => (
+                  <option key={name} value={name} />
+                ))}
+            </datalist>
+
+            <div className="relative">
+              <p className="mb-1 text-xs font-semibold text-slate-600">Employees for this batch</p>
               <button
                 type="button"
-                onClick={() => assignSelectedToBatch(assignmentForeman)}
-                className={btnOutline + " w-full justify-center"}
+                onClick={() => setEmployeePickerOpen((open) => !open)}
+                aria-expanded={employeePickerOpen}
+                className={`${input} flex items-center justify-between text-left`}
               >
-                <UserRoundPlus size={14} />
-                {selectedIds.length
-                  ? `Assign ${selectedIds.length} selected`
-                  : "Assign visible workers"}
+                <span>
+                  {selectedCount
+                    ? `${selectedCount} employee${selectedCount === 1 ? "" : "s"} selected`
+                    : "Select employees…"}
+                </span>
+                <ChevronDown size={16} />
               </button>
+              {employeePickerOpen && (
+                <div className="absolute z-30 mt-1 w-full rounded-xl border border-border bg-card p-2 shadow-xl">
+                  <div className="relative mb-2">
+                    <Search
+                      size={15}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+                    <input
+                      autoFocus
+                      value={employeeSearch}
+                      onChange={(event) => setEmployeeSearch(event.target.value)}
+                      placeholder="Find employee by name, trade or ID"
+                      className={`${input} pl-9`}
+                    />
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {activeEmployees
+                      .filter((employee) => {
+                        const query = employeeSearch.trim().toLowerCase();
+                        return (
+                          !query ||
+                          [employee.name, employee.trade, employee.id_number, String(employee.id)]
+                            .join(" ")
+                            .toLowerCase()
+                            .includes(query)
+                        );
+                      })
+                      .map((employee) => {
+                        const checked = selectedIds.includes(employee.id);
+                        const assigned = timesheets.find(
+                          (entry) => entry.employee_id === employee.id,
+                        );
+                        const assignedOutsideBatch =
+                          assigned &&
+                          (!editingKey || batchKey(assigned.site, assigned.foreman) !== editingKey);
+                        const lockedInBatch =
+                          checked &&
+                          editingKey !== null &&
+                          assigned &&
+                          batchKey(assigned.site, assigned.foreman) === editingKey;
+                        return (
+                          <label
+                            key={employee.id}
+                            className={`flex min-h-11 items-center gap-3 rounded-lg px-2 py-2 text-sm ${
+                              assignedOutsideBatch
+                                ? "cursor-not-allowed opacity-50"
+                                : "cursor-pointer hover:bg-navy-soft"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={Boolean(
+                                (assignedOutsideBatch && !checked) || lockedInBatch,
+                              )}
+                              onChange={() => toggleEmployee(employee)}
+                              className="h-4 w-4 accent-[var(--navy)]"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-semibold text-navy">
+                                {employee.name}
+                              </span>
+                              <span className="block text-[11px] text-muted-foreground">
+                                {employee.trade} · ID {employee.id_number || employee.id}
+                              </span>
+                            </span>
+                            {assignedOutsideBatch && (
+                              <span className="max-w-36 text-right text-[10px] font-semibold text-warn">
+                                Assigned: {assigned.site} · {assigned.foreman}
+                              </span>
+                            )}
+                            {lockedInBatch && (
+                              <span className="text-[10px] font-bold text-money">
+                                In this batch
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })}
+                    {filteredPickerEmployees.length === 0 && (
+                      <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+                        No available employees match. Workers already assigned today are locked to
+                        their existing site batch.
+                      </p>
+                    )}
+                  </div>
+                  <div className="mt-2 flex justify-end border-t border-border pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEmployeePickerOpen(false);
+                        setEmployeeSearch("");
+                      }}
+                      className={btnOutline}
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Filter</p>
-              <div className="relative">
-                <Search
-                  size={14}
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-                <input
-                  value={search}
-                  onChange={(event) => {
-                    setSelectedIds([]);
-                    setSearch(event.target.value);
-                  }}
-                  placeholder="Search employee"
-                  className={input + " pl-8"}
-                />
-              </div>
-              <select
-                value={selectedStatus}
-                onChange={(event) => {
-                  setSelectedIds([]);
-                  setSelectedStatus(event.target.value as AttendanceFilter);
-                }}
-                className={input}
-              >
-                <option value="All">All statuses</option>
-                <option value="PRESENT">Present</option>
-                <option value="ABSENT">Absent</option>
-                <option value="LEAVE">Leave</option>
-                <option value="HOLIDAY">Holiday</option>
-                <option value="WEEKLY_OFF">Weekly off</option>
-                <option value="HALF_DAY">Half day</option>
-                <option value="Review">Review</option>
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                Exceptions
+            {duplicateAssignments.length > 0 && (
+              <p className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs font-medium text-danger">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                {duplicateAssignments
+                  .map(
+                    ({ employee, assigned }) =>
+                      `${employee.name} is already assigned to ${assigned.site} · ${assigned.foreman}`,
+                  )
+                  .join("; ")}
               </p>
-              <div className="space-y-2 rounded-lg border border-border bg-navy-soft p-3 text-xs">
-                <div className="flex items-center justify-between">
-                  <span>Missing</span>
-                  <strong>{exceptionSummary.missing}</strong>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Absent</span>
-                  <strong>{exceptionSummary.absent}</strong>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Leave</span>
-                  <strong>{exceptionSummary.leave}</strong>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Overtime</span>
-                  <strong>{exceptionSummary.overtime}</strong>
-                </div>
-              </div>
-            </div>
+            )}
 
-            <div className="rounded-lg border border-border p-3 text-xs">
-              <div className="flex items-center justify-between font-bold text-navy">
-                <span>Crew</span>
-                <strong>{crewName === "All foremen" ? "All workers" : crewName}</strong>
-              </div>
-              <p className="mt-2 text-muted-foreground">
-                {filteredEmployees.length} active workers
-              </p>
-            </div>
-          </aside>
-
-          <main className="min-w-0 overflow-hidden">
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full min-w-[1100px] text-left text-xs">
-                <thead className="sticky top-0 z-10 bg-navy-soft text-[10px] font-bold uppercase tracking-wide text-slate-600">
-                  <tr>
-                    <th className="px-2 py-3">
-                      <input
-                        type="checkbox"
-                        checked={
-                          selectedIds.length > 0 && selectedIds.length === filteredEmployees.length
-                        }
-                        onChange={() =>
-                          setSelectedIds(
-                            selectedIds.length === filteredEmployees.length
-                              ? []
-                              : filteredEmployees.map((employee) => employee.id),
-                          )
-                        }
-                      />
-                    </th>
-                    <th className="px-2 py-3">Employee</th>
-                    <th className="px-2 py-3">ID</th>
-                    <th className="px-2 py-3">Trade</th>
-                    <th className="px-2 py-3">Site</th>
-                    <th className="px-2 py-3">Foreman</th>
-                    <th className="px-2 py-3">Status</th>
-                    <th className="px-2 py-3">In</th>
-                    <th className="px-2 py-3">Out</th>
-                    <th className="px-2 py-3">Break</th>
-                    <th className="px-2 py-3">Regular hrs</th>
-                    <th className="px-2 py-3">OT</th>
-                    <th className="px-2 py-3">Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredEmployees.map((employee) => {
-                    const row = rows[employee.id] ?? initialRow(employee, workDate, siteFilter, "");
-                    const worked = row.status === "PRESENT" || row.status === "HALF_DAY";
-                    const isSelected = selectedIds.includes(employee.id);
-                    const isException = exceptionCount(row) > 0;
-                    return (
-                      <tr
-                        key={employee.id}
-                        className={`border-t border-border ${isSelected ? "bg-navy-soft" : "bg-card hover:bg-navy-soft/50"} ${isException ? "border-l-2 border-l-danger" : ""}`}
-                        onClick={() => setSelectedEmployeeId(employee.id)}
-                      >
-                        <td className="px-2 py-2">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleSelection(employee.id)}
-                          />
-                        </td>
-                        <td className="px-2 py-2 font-semibold text-navy">{employee.name}</td>
-                        <td className="px-2 py-2 font-mono text-[11px] text-slate-500">
-                          {employee.id_number || employee.id}
-                        </td>
-                        <td className="px-2 py-2">{employee.trade}</td>
-                        <td className="px-2 py-2">
-                          <input
-                            value={row.site || siteFilter}
-                            onChange={(event) =>
-                              updateRow(employee.id, { site: event.target.value })
-                            }
-                            className={inputSm + " min-w-[110px]"}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <input
-                            value={row.foreman}
-                            onChange={(event) =>
-                              updateRow(employee.id, { foreman: event.target.value })
-                            }
-                            list="foreman-options"
-                            className={inputSm + " min-w-[110px]"}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
+            {selectedEmployees.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                    Daily attendance · {selectedEmployees.length} worker(s)
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAttendance((current) => {
+                        const next = { ...current };
+                        selectedEmployees.forEach((employee) => {
+                          const row = next[employee.id] ?? defaultAttendance();
+                          next[employee.id] = {
+                            ...row,
+                            status: "PRESENT",
+                            inTime: "08:00",
+                            outTime: "17:00",
+                            breakHours: "1",
+                          };
+                        });
+                        return next;
+                      });
+                      setDirty(true);
+                    }}
+                    className={btnOutline}
+                  >
+                    <Check size={14} /> Set all present · 08:00–17:00
+                  </button>
+                </div>
+                {selectedEmployees.map((employee) => {
+                  const row = attendance[employee.id] ?? defaultAttendance();
+                  const workedToday = worked(row.status);
+                  const assignedExisting =
+                    editingKey !== null &&
+                    timesheets.some(
+                      (entry) =>
+                        entry.employee_id === employee.id &&
+                        batchKey(entry.site, entry.foreman) === editingKey,
+                    );
+                  return (
+                    <article
+                      key={employee.id}
+                      className="rounded-xl border border-border bg-card p-3 sm:p-4"
+                    >
+                      <div className="mb-3 flex items-start justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-navy-soft text-navy">
+                            <Users size={16} />
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="truncate text-sm font-bold text-navy">
+                              {employee.name}
+                            </h4>
+                            <p className="text-[11px] text-muted-foreground">
+                              {employee.trade} · {employee.id_number || `ID ${employee.id}`}
+                            </p>
+                          </div>
+                        </div>
+                        {!assignedExisting && (
+                          <button
+                            type="button"
+                            onClick={() => toggleEmployee(employee)}
+                            className={btnIcon}
+                            aria-label={`Remove ${employee.name} from this unsaved batch`}
+                            title="Remove from batch"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+                        <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                          Status
                           <select
                             value={row.status}
                             onChange={(event) =>
-                              updateRow(employee.id, {
+                              updateAttendance(employee.id, {
                                 status: event.target.value as AttendanceStatus,
                               })
                             }
-                            className={inputSm + " min-w-[100px]"}
+                            className={`${select} mt-1`}
                           >
-                            <option value="PRESENT">Present</option>
-                            <option value="ABSENT">Absent</option>
-                            <option value="LEAVE">Leave</option>
-                            <option value="HOLIDAY">Holiday</option>
-                            <option value="WEEKLY_OFF">Weekly off</option>
-                            <option value="HALF_DAY">Half day</option>
+                            {ATTENDANCE_STATUSES.map((status) => (
+                              <option key={status.value} value={status.value}>
+                                {status.label}
+                              </option>
+                            ))}
                           </select>
-                        </td>
-                        <td className="px-2 py-2">
+                        </label>
+                        <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                          In
                           <input
                             type="time"
                             value={row.inTime}
-                            disabled={!worked}
+                            disabled={!workedToday}
                             onChange={(event) =>
-                              updateRow(employee.id, { inTime: event.target.value })
+                              updateAttendance(employee.id, { inTime: event.target.value })
                             }
-                            className={inputSm + " min-w-[90px] disabled:opacity-50"}
+                            className={`${input} mt-1 disabled:opacity-50`}
                           />
-                        </td>
-                        <td className="px-2 py-2">
+                        </label>
+                        <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                          Out
                           <input
                             type="time"
                             value={row.outTime}
-                            disabled={!worked}
+                            disabled={!workedToday}
                             onChange={(event) =>
-                              updateRow(employee.id, { outTime: event.target.value })
+                              updateAttendance(employee.id, { outTime: event.target.value })
                             }
-                            className={inputSm + " min-w-[90px] disabled:opacity-50"}
+                            className={`${input} mt-1 disabled:opacity-50`}
                           />
-                        </td>
-                        <td className="px-2 py-2">
+                        </label>
+                        <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                          Break (hrs)
                           <input
                             type="number"
                             min="0"
                             step="0.25"
                             value={row.breakHours}
-                            disabled={!worked}
+                            disabled={!workedToday}
                             onChange={(event) =>
-                              updateRow(employee.id, { breakHours: event.target.value })
+                              updateAttendance(employee.id, { breakHours: event.target.value })
                             }
-                            className={inputSm + " min-w-[70px] disabled:opacity-50"}
+                            className={`${input} mt-1 disabled:opacity-50`}
                           />
-                        </td>
-                        <td className="px-2 py-2 text-right font-bold text-navy">
-                          {regularHoursFor(row).toFixed(2)}
-                        </td>
-                        <td className="px-2 py-2">
+                        </label>
+                        <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                          Overtime (hrs)
                           <input
                             type="number"
                             min="0"
                             step="0.25"
                             value={row.overtime}
-                            disabled={!worked}
+                            disabled={!workedToday}
                             onChange={(event) =>
-                              updateRow(employee.id, { overtime: event.target.value })
+                              updateAttendance(employee.id, { overtime: event.target.value })
                             }
-                            className={inputSm + " min-w-[65px] disabled:opacity-50"}
+                            className={`${input} mt-1 disabled:opacity-50`}
                           />
-                        </td>
-                        <td className="px-2 py-2">
+                        </label>
+                        <div className="flex flex-col justify-end rounded-lg bg-navy-soft px-3 py-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                            Regular hrs
+                          </span>
+                          <strong className="mt-1 text-sm text-navy">
+                            {Math.max(0, hoursFor(row) - (Number(row.overtime) || 0)).toFixed(2)}
+                          </strong>
+                        </div>
+                        <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500 sm:col-span-2 lg:col-span-6">
+                          Notes
                           <input
                             value={row.notes}
                             onChange={(event) =>
-                              updateRow(employee.id, { notes: event.target.value })
+                              updateAttendance(employee.id, { notes: event.target.value })
                             }
-                            className={inputSm + " min-w-[120px]"}
+                            placeholder="Optional attendance note"
+                            className={`${input} mt-1`}
                           />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </main>
-
-          <aside className="space-y-3 border-t border-border pt-3 xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0">
-            {selectedEmployee && selectedRow ? (
-              <>
-                <div className="rounded-lg border border-border bg-navy-soft p-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                        Selected employee
-                      </p>
-                      <h3 className="mt-1 text-base font-extrabold text-navy">
-                        {selectedEmployee.name}
-                      </h3>
-                    </div>
-                    <span className="rounded-full border border-border bg-card px-2 py-1 text-[10px] font-bold uppercase text-slate-600">
-                      {selectedRow.status}
-                    </span>
-                  </div>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
-                    <div>
-                      <span className="font-bold text-slate-500">Trade</span>
-                      <div>{selectedEmployee.trade}</div>
-                    </div>
-                    <div>
-                      <span className="font-bold text-slate-500">Rate</span>
-                      <div>{selectedEmployee.hourly_rate.toFixed(2)}</div>
-                    </div>
-                    <div>
-                      <span className="font-bold text-slate-500">Site</span>
-                      <div>{selectedRow.site || "—"}</div>
-                    </div>
-                    <div>
-                      <span className="font-bold text-slate-500">Foreman</span>
-                      <div>{selectedRow.foreman || "—"}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-border p-3 text-xs">
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    Current day
-                  </p>
-                  <div className="mt-2 space-y-1 text-slate-600">
-                    <div className="flex justify-between">
-                      <span>Hours</span>
-                      <strong className="text-navy">
-                        {regularHoursFor(selectedRow).toFixed(2)}
-                      </strong>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>OT</span>
-                      <strong>{overtimeFor(selectedRow).toFixed(2)}</strong>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Break</span>
-                      <strong>{selectedRow.breakHours}</strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-border p-3 text-xs">
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    Quick actions
-                  </p>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => updateRow(selectedEmployee.id, { status: "PRESENT" })}
-                      className={btnOutline + " justify-center px-2 py-2 text-[11px]"}
-                    >
-                      Present
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateRow(selectedEmployee.id, { status: "ABSENT" })}
-                      className={btnOutline + " justify-center px-2 py-2 text-[11px]"}
-                    >
-                      Absent
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateRow(selectedEmployee.id, { status: "LEAVE" })}
-                      className={btnOutline + " justify-center px-2 py-2 text-[11px]"}
-                    >
-                      Leave
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateRow(selectedEmployee.id, { inTime: "08:00", outTime: "17:00" })
-                      }
-                      className={btnOutline + " justify-center px-2 py-2 text-[11px]"}
-                    >
-                      Shift
-                    </button>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="rounded-lg border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-                Select a row to inspect attendance details.
+                        </label>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             )}
-          </aside>
-        </div>
-      </div>
 
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <AlertTriangle size={14} className="text-warn" />
-          {timesheetsQuery.error
-            ? `Attendance load issue: ${timesheetsQuery.error.message}`
-            : timesheetsQuery.isLoading
-              ? `Loading attendance for ${workDate}…`
-              : `Showing ${currentRecords.length} rows for ${workDate}${crewName === "All foremen" ? "" : ` · ${crewName} batch`}`}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => applyBulkAction("in", "08:00")}
-            className={btnOutline + " justify-center px-3 py-2 text-xs"}
-          >
-            Apply In
-          </button>
-          <button
-            type="button"
-            onClick={() => applyBulkAction("out", "17:00")}
-            className={btnOutline + " justify-center px-3 py-2 text-xs"}
-          >
-            Apply Out
-          </button>
-          <button
-            type="button"
-            onClick={() => applyBulkAction("break", "1")}
-            className={btnOutline + " justify-center px-3 py-2 text-xs"}
-          >
-            Apply Break
-          </button>
-          <button
-            type="button"
-            onClick={() => applyBulkAction("overtime", "2")}
-            className={btnOutline + " justify-center px-3 py-2 text-xs"}
-          >
-            Apply OT
-          </button>
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => void saveAll()}
-            className={btnGold + " justify-center px-4 py-2 text-xs"}
-          >
-            <HardHat size={15} />{" "}
-            {saving ? "Saving…" : crewName === "All foremen" ? "Save attendance" : "Save batch"}
-          </button>
-        </div>
-      </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
+              <p className="text-xs text-muted-foreground">
+                {selectedCount
+                  ? `${selectedCount} employee(s) · ${site.trim() || "Site not set"} · ${foreman.trim() || "Foreman not set"}`
+                  : "Choose a site, foreman, and one or more employees to begin."}
+              </p>
+              <div className="flex gap-2">
+                {dirty && (
+                  <button type="button" onClick={startNewBatch} className={btnOutline}>
+                    <X size={15} /> Cancel changes
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={saving || !selectedCount || Boolean(duplicateAssignments.length)}
+                  onClick={() => void saveBatch()}
+                  className={btnGold}
+                >
+                  <HardHat size={15} />{" "}
+                  {saving ? "Saving…" : editingKey ? "Save changes" : "Save batch"}
+                </button>
+              </div>
+            </div>
+          </div>
 
-      <datalist id="site-options">
-        {siteOptions.map((option) => (
-          <option key={option} value={option} />
-        ))}
-      </datalist>
-      <datalist id="foreman-options">
-        {[
-          ...new Set(
-            timesheets
-              .map((entry) => entry.foreman)
-              .filter(Boolean)
-              .concat(
-                employees.filter((entry) => entry.trade === "FORMAN").map((entry) => entry.name),
-              ),
-          ),
-        ].map((name) => (
-          <option key={name} value={name} />
-        ))}
-      </datalist>
+          <section className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-display text-lg font-bold text-navy">Saved batches</h3>
+                <p className="text-xs text-muted-foreground">
+                  {timesheets.length} worker record(s) in {savedBatches.length} site / foreman
+                  batch(es) for {workDate}.
+                </p>
+              </div>
+              <button type="button" onClick={startNewBatch} className={btnGold}>
+                <Plus size={15} /> Create another batch
+              </button>
+            </div>
+            {savedBatches.length === 0 ? (
+              <div className={`${card} p-8 text-center`}>
+                <Clock3 size={26} className="mx-auto text-slate-400" />
+                <p className="mt-2 text-sm font-semibold text-navy">
+                  No attendance batches saved for this date.
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Create the first batch above, or copy a batch from the previous day.
+                </p>
+              </div>
+            ) : (
+              savedBatches.map((batch) => {
+                const present = batch.entries.filter((entry) => worked(entry.status)).length;
+                const hours = batch.entries.reduce(
+                  (sum, entry) => sum + Number(entry.total_hours ?? 0),
+                  0,
+                );
+                return (
+                  <article
+                    key={batch.key}
+                    className={`${card} flex flex-wrap items-center gap-3 p-4`}
+                  >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-navy-soft text-navy">
+                      <Users size={18} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="truncate text-sm font-bold text-navy">
+                        {batch.site} <span className="font-normal text-slate-400">·</span>{" "}
+                        {batch.foreman}
+                      </h4>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {batch.entries.length} employee(s) · {present} present · {hours.toFixed(2)}{" "}
+                        recorded hours
+                      </p>
+                      <p className="mt-1 truncate text-[11px] text-slate-500">
+                        {batch.entries
+                          .map(
+                            (entry) =>
+                              employeeById.get(entry.employee_id)?.name ??
+                              `ID ${entry.employee_id}`,
+                          )
+                          .join(", ")}
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => editBatch(batch)} className={btnOutline}>
+                      <Pencil size={14} /> Edit batch
+                    </button>
+                  </article>
+                );
+              })
+            )}
+          </section>
+        </>
+      )}
     </section>
   );
 }
