@@ -426,10 +426,8 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
 
   return (
     <section className="space-y-2.5">
-      <div
-        className={`${card} grid grid-cols-1 items-end gap-2 p-2.5 lg:grid-cols-[minmax(145px,0.8fr)_minmax(180px,1.2fr)_minmax(180px,1.2fr)_auto_auto]`}
-      >
-        <label className="min-w-0 text-[10px] font-semibold text-slate-500">
+      <div className={`${card} attendance-batch-toolbar`}>
+        <label className="attendance-batch-field">
           Attendance date
           <input
             type="date"
@@ -440,10 +438,10 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
               setWorkDate(event.target.value);
               setCopyPickerOpen(false);
             }}
-            className={`${input} mt-0.5 h-8 rounded-md px-2 py-1 text-xs`}
+            className={`${input} rounded-md px-2 py-1 text-xs`}
           />
         </label>
-        <label className="min-w-0 text-[10px] font-semibold text-slate-500">
+        <label className="attendance-batch-field">
           Site / project
           <input
             value={site}
@@ -453,10 +451,10 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
             }}
             placeholder="Enter or choose a site"
             list="attendance-sites"
-            className={`${input} mt-0.5 h-8 rounded-md px-2 py-1 text-xs`}
+            className={`${input} rounded-md px-2 py-1 text-xs`}
           />
         </label>
-        <label className="min-w-0 text-[10px] font-semibold text-slate-500">
+        <label className="attendance-batch-field">
           Foreman
           <input
             value={foreman}
@@ -466,23 +464,25 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
             }}
             placeholder="Enter or choose a foreman"
             list="attendance-foremen"
-            className={`${input} mt-0.5 h-8 rounded-md px-2 py-1 text-xs`}
+            className={`${input} rounded-md px-2 py-1 text-xs`}
           />
         </label>
-        <button
-          type="button"
-          onClick={copyPreviousDay}
-          className={`${btnOutline} h-8 shrink-0 rounded-md px-2.5 py-1 text-xs`}
-        >
-          <Copy size={13} /> Copy previous day
-        </button>
-        <button
-          type="button"
-          onClick={startNewBatch}
-          className={`${btnGold} h-8 shrink-0 rounded-md px-2.5 py-1 text-xs`}
-        >
-          <Plus size={14} /> New batch
-        </button>
+        <div className="attendance-batch-actions">
+          <button
+            type="button"
+            onClick={copyPreviousDay}
+            className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
+          >
+            <Copy size={13} /> Copy previous day
+          </button>
+          <button
+            type="button"
+            onClick={startNewBatch}
+            className={`${btnGold} rounded-md px-2.5 py-1 text-xs`}
+          >
+            <Plus size={14} /> New batch
+          </button>
+        </div>
       </div>
 
       {timesheetsQuery.error && (
