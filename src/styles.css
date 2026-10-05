@@ -180,22 +180,36 @@
 
   .floating-menu {
     position: fixed;
-    z-index: 55;
+    z-index: 20;
     top: 50%;
-    left: 16px;
+    left: 0;
     display: flex;
     max-height: calc(100dvh - 32px);
     flex-direction: column;
     gap: 8px;
     overflow-y: auto;
     padding: 8px;
-    transform: translateY(-50%);
+    transform: translate(calc(-100% + 12px), -50%);
     border: 1px solid color-mix(in oklch, var(--border) 80%, white);
     border-radius: 20px;
     background: color-mix(in oklch, var(--card) 92%, transparent);
     box-shadow: 0 12px 36px oklch(0.2 0.03 233 / 0.16);
     backdrop-filter: blur(18px);
     scrollbar-width: none;
+    transition: transform 240ms cubic-bezier(0.2, 0.75, 0.25, 1);
+  }
+
+  .floating-menu:hover,
+  .floating-menu:focus-within {
+    transform: translate(0, -50%);
+  }
+
+  .floating-menu-trigger {
+    display: none;
+  }
+
+  .floating-menu-mobile-label {
+    display: none;
   }
 
   .floating-menu::-webkit-scrollbar {
@@ -305,56 +319,96 @@
   }
 
   .floating-menu {
+    right: 12px;
+    left: auto;
+    z-index: 20;
     top: auto;
-    bottom: calc(8px + env(safe-area-inset-bottom));
-    left: 50%;
-    width: max-content;
-    max-width: calc(100vw - 16px);
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    width: min(280px, calc(100vw - 24px));
     max-height: none;
-    flex-direction: row;
-    gap: 5px;
-    overflow-x: auto;
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 8px;
+    overflow: visible;
     overflow-y: hidden;
     padding: 6px;
-    transform: translateX(-50%);
+    transform: none;
     border-radius: 18px;
+    transition:
+      transform 220ms ease,
+      opacity 180ms ease;
+  }
+
+  .floating-menu:hover,
+  .floating-menu:focus-within,
+  .floating-menu.is-open {
+    transform: none;
+  }
+
+  .floating-menu-trigger {
+    display: flex;
+    min-height: 48px;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    border: 0;
+    border-radius: 13px;
+    background: var(--navy);
+    padding: 0 14px;
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    box-shadow: 0 5px 14px oklch(0.2 0.03 233 / 0.2);
   }
 
   .floating-menu-links,
   .floating-menu-tools {
-    flex-direction: row;
-    flex: 0 0 auto;
+    display: none;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .floating-menu.is-open .floating-menu-links,
+  .floating-menu.is-open .floating-menu-tools {
+    display: flex;
   }
 
   .floating-menu-links {
-    gap: 2px;
+    max-height: calc(100dvh - 150px);
+    overflow-y: auto;
   }
 
   .floating-menu-tools {
-    gap: 2px;
-    border-top: 0;
-    border-left: 1px solid var(--border);
-    padding-top: 0;
-    padding-left: 5px;
+    border-top: 1px solid var(--border);
+    padding-top: 6px;
   }
 
   .floating-menu-button {
-    width: 40px;
-    height: 40px;
-    min-height: 40px;
-    flex-basis: 40px;
+    width: 100%;
+    height: 42px;
+    min-height: 42px;
+    flex: 0 0 42px;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 0 10px;
+    text-align: left;
+  }
+
+  .floating-menu-mobile-label {
+    display: inline;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 650;
+  }
+
+  .floating-menu-button.is-active .floating-menu-mobile-label {
+    color: white;
   }
 
   .floating-menu-tooltip {
-    top: auto;
-    bottom: calc(100% + 9px);
-    left: 50%;
-    transform: translate(-50%, 4px);
-  }
-
-  .floating-menu-button:hover .floating-menu-tooltip,
-  .floating-menu-button:focus-visible .floating-menu-tooltip {
-    transform: translate(-50%, 0);
+    display: none;
   }
 
   button,
@@ -628,6 +682,10 @@
   .mobile-sheet,
   .mobile-list-skeleton {
     animation: none;
+  }
+
+  .floating-menu {
+    transition: none;
   }
 }
 

@@ -426,8 +426,10 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
 
   return (
     <section className="space-y-2.5">
-      <div className={`${card} flex flex-wrap items-end gap-2 p-2.5 xl:flex-nowrap`}>
-        <label className="min-w-36 flex-1 text-[10px] font-semibold text-slate-500">
+      <div
+        className={`${card} grid grid-cols-1 items-end gap-2 p-2.5 lg:grid-cols-[minmax(145px,0.8fr)_minmax(180px,1.2fr)_minmax(180px,1.2fr)_auto_auto]`}
+      >
+        <label className="min-w-0 text-[10px] font-semibold text-slate-500">
           Attendance date
           <input
             type="date"
@@ -441,7 +443,7 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
             className={`${input} mt-0.5 h-8 rounded-md px-2 py-1 text-xs`}
           />
         </label>
-        <label className="min-w-40 flex-1 text-[10px] font-semibold text-slate-500">
+        <label className="min-w-0 text-[10px] font-semibold text-slate-500">
           Site / project
           <input
             value={site}
@@ -454,7 +456,7 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
             className={`${input} mt-0.5 h-8 rounded-md px-2 py-1 text-xs`}
           />
         </label>
-        <label className="min-w-40 flex-1 text-[10px] font-semibold text-slate-500">
+        <label className="min-w-0 text-[10px] font-semibold text-slate-500">
           Foreman
           <input
             value={foreman}

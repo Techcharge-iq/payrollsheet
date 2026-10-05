@@ -17,6 +17,8 @@ import {
   LogOut,
   Plus,
   Search,
+  Menu,
+  X,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 
@@ -236,7 +238,9 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "warn" } | null>(null);
   const [registeringPasskey, setRegisteringPasskey] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const attendanceDirtyRef = useRef(false);
+  const activeTab = TABS.find((item) => item.id === tab);
 
   const employeesQuery = useEmployees();
   const needsPayrollHistory = ["history", "slips", "advances"].includes(tab) || mode !== null;
@@ -426,6 +430,7 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
       }
       if (event.key === "Escape") {
         setCommandOpen(false);
+        setMobileMenuOpen(false);
       }
     };
 
@@ -435,20 +440,39 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
 
   return (
     <div className="workstation-shell min-h-screen bg-canvas font-sans text-foreground">
-      <nav className="floating-menu" aria-label="Application menu">
-        <div className="floating-menu-links">
+      <nav
+        id="application-menu"
+        className={`floating-menu ${mobileMenuOpen ? "is-open" : ""}`}
+        aria-label="Application menu"
+      >
+        <button
+          type="button"
+          className="floating-menu-trigger"
+          aria-controls="application-menu-links"
+          aria-expanded={mobileMenuOpen}
+          onClick={() => setMobileMenuOpen((open) => !open)}
+        >
+          {mobileMenuOpen ? <X size={19} /> : <Menu size={19} />}
+          <span>{mobileMenuOpen ? "Close menu" : `Menu · ${activeTab?.label ?? "Navigate"}`}</span>
+        </button>
+        <div id="application-menu-links" className="floating-menu-links">
           {TABS.filter((item) => !("adminOnly" in item) || canDelete).map(
             ({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 type="button"
-                onClick={() => navigateToTab(id)}
+                onClick={(event) => {
+                  navigateToTab(id);
+                  setMobileMenuOpen(false);
+                  if (event.detail > 0) event.currentTarget.blur();
+                }}
                 aria-label={label}
                 aria-current={tab === id ? "page" : undefined}
                 title={label}
                 className={`floating-menu-button ${tab === id ? "is-active" : ""}`}
               >
                 <Icon size={19} strokeWidth={tab === id ? 2.5 : 2} />
+                <span className="floating-menu-mobile-label">{label}</span>
                 <span className="floating-menu-tooltip">{label}</span>
               </button>
             ),
@@ -457,35 +481,50 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
         <div className="floating-menu-tools">
           <button
             type="button"
-            onClick={() => setCommandOpen(true)}
+            onClick={(event) => {
+              setMobileMenuOpen(false);
+              setCommandOpen(true);
+              if (event.detail > 0) event.currentTarget.blur();
+            }}
             aria-label="Search and commands"
             title="Search / commands (Ctrl+K)"
             className="floating-menu-button"
           >
             <Search size={18} />
+            <span className="floating-menu-mobile-label">Search / commands</span>
             <span className="floating-menu-tooltip">Search / commands</span>
           </button>
           <button
             type="button"
-            onClick={() => void addPasskey()}
+            onClick={(event) => {
+              setMobileMenuOpen(false);
+              if (event.detail > 0) event.currentTarget.blur();
+              void addPasskey();
+            }}
             disabled={registeringPasskey}
             aria-label="Add passkey"
             title={registeringPasskey ? "Adding passkey…" : "Add passkey"}
             className="floating-menu-button"
           >
             <KeyRound size={18} />
+            <span className="floating-menu-mobile-label">Add passkey</span>
             <span className="floating-menu-tooltip">
               {registeringPasskey ? "Adding passkey…" : "Add passkey"}
             </span>
           </button>
           <button
             type="button"
-            onClick={() => void db.auth.signOut()}
+            onClick={(event) => {
+              setMobileMenuOpen(false);
+              if (event.detail > 0) event.currentTarget.blur();
+              void db.auth.signOut();
+            }}
             aria-label={`Sign out ${email}`}
             title={`Sign out ${email}`}
             className="floating-menu-button floating-menu-signout"
           >
             <LogOut size={18} />
+            <span className="floating-menu-mobile-label">Sign out</span>
             <span className="floating-menu-tooltip">Sign out · {role}</span>
           </button>
         </div>
