@@ -92,6 +92,7 @@ import type {
   PayrollBatchStatus,
 } from "@/lib/payroll";
 import { db } from "@/integrations/supabase/external-client";
+import { clearPayrollCacheUser, initializePayrollCache } from "@/lib/payroll-cache";
 
 const TITLE = "Site Payroll Manager — Wages, Advances & Salary Slips";
 const DESCRIPTION =
@@ -144,7 +145,12 @@ function AuthGate() {
 
   useEffect(() => {
     let active = true;
-    const { data: listener } = db.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = db.auth.onAuthStateChange((event, nextSession) => {
+      if (event === "SIGNED_OUT" && currentUserId.current) {
+        void clearPayrollCacheUser(currentUserId.current).catch((error: unknown) => {
+          console.error("Could not clear signed-out payroll data from this browser.", error);
+        });
+      }
       setSession(nextSession);
       setAuthLoading(false);
     });
@@ -228,10 +234,19 @@ function AuthGate() {
     );
   }
 
-  return <Dashboard role={role} email={session.user.email ?? ""} />;
+  return <Dashboard role={role} email={session.user.email ?? ""} userId={session.user.id} />;
 }
 
-function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: string }) {
+function Dashboard({
+  role,
+  email,
+  userId,
+}: {
+  role: "admin" | "hr" | string;
+  email: string;
+  userId: string;
+}) {
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<TabId>("employees");
   const [mode, setMode] = useState<ModalMode>(null);
   const [form, setForm] = useState<EmployeeForm>(emptyForm);
@@ -239,21 +254,54 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
   const [registeringPasskey, setRegisteringPasskey] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [cacheState, setCacheState] = useState<"loading" | "ready" | "error">("loading");
+  const [cacheError, setCacheError] = useState("");
+  const [cacheAttempt, setCacheAttempt] = useState(0);
   const attendanceDirtyRef = useRef(false);
   const activeTab = TABS.find((item) => item.id === tab);
 
-  const employeesQuery = useEmployees();
+  const cacheReady = cacheState === "ready";
+  const employeesQuery = useEmployees(cacheReady);
   const needsPayrollHistory = ["history", "slips", "advances"].includes(tab) || mode !== null;
-  const batchesQuery = useBatches(undefined, needsPayrollHistory);
+  const batchesQuery = useBatches(undefined, cacheReady && needsPayrollHistory);
   const saveEmployee = useSaveEmployee();
   const canDelete = role === "admin";
   const saveBatch = useSaveBatch(canDelete);
   const updateBatchStatus = useUpdateBatchStatus();
   const deleteBatch = useDeleteBatch();
-  const advancesQuery = useAdvances();
+  const advancesQuery = useAdvances(cacheReady);
   const saveTimesheets = useSaveTimesheets();
   const saveAdvance = useSaveAdvance();
   const deleteAdvance = useDeleteAdvance();
+
+  useEffect(() => {
+    let active = true;
+    let stop: (() => Promise<void>) | undefined;
+    setCacheState("loading");
+    setCacheError("");
+    void initializePayrollCache(userId, queryClient, (message) =>
+      setToast({ msg: message, tone: "warn" }),
+    )
+      .then((dispose) => {
+        stop = dispose;
+        if (active) {
+          setCacheState("ready");
+        } else {
+          void dispose();
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          console.error("Could not initialize the local payroll cache.", error);
+          setCacheError(error instanceof Error ? error.message : String(error));
+          setCacheState("error");
+        }
+      });
+    return () => {
+      active = false;
+      if (stop) void stop();
+    };
+  }, [cacheAttempt, queryClient, userId]);
 
   const employees: Employee[] = employeesQuery.data ?? [];
   const batches: PayrollBatch[] = batchesQuery.data ?? [];
@@ -437,6 +485,41 @@ function Dashboard({ role, email }: { role: "admin" | "hr" | string; email: stri
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  if (cacheState === "loading") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-canvas px-4 text-sm font-semibold text-muted-foreground">
+        Syncing payroll data…
+      </main>
+    );
+  }
+
+  if (cacheState === "error") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-canvas px-4">
+        <section className="w-full max-w-lg rounded-2xl border border-danger/30 bg-card p-6 text-center shadow-lg">
+          <h1 className="font-display text-lg font-extrabold text-navy">
+            Payroll data could not sync
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            The app could not refresh its local data from Supabase. Check your connection and retry.
+          </p>
+          {cacheError && (
+            <p className="mt-2 break-words text-xs text-danger" role="alert">
+              {cacheError}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => setCacheAttempt((attempt) => attempt + 1)}
+            className="mt-5 rounded-lg bg-navy px-4 py-2 text-sm font-semibold text-white hover:bg-navy-dark"
+          >
+            Retry sync
+          </button>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <div className="workstation-shell min-h-screen bg-canvas font-sans text-foreground">

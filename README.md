@@ -40,6 +40,8 @@ Prefer working locally? You need Node.js and npm — [install with nvm](https://
 git clone <this-repository-url>
 cd <repository-name>
 npm i
+npx playwright install chromium
+npm run test:e2e
 npm run dev
 ```
 
@@ -65,4 +67,12 @@ Admins can read, create, edit, and delete payroll records. HR can read, create, 
 
 Payroll uses the existing `employees`, `payroll_batches`, and `payroll_lines` tables. Daily attendance is stored separately in `public.timesheets`, linked to an employee, with a site and foreman name, work date, in/out times, and break duration. `total_hours` is a generated database column, so saved hours are derived from the recorded shift rather than accepted from the browser. Site names remain on each timesheet entry; a separate site directory is not required.
 
-Apply [`supabase/migrations/20261003175100_timesheets.sql`](./supabase/migrations/20261003175100_timesheets.sql) after the existing payroll role and audit log migrations. The migration adds authenticated `admin`/`hr` row-level access, daily-entry uniqueness, shift validation, and audit logging. No Edge Function is needed: attendance persistence is protected by Supabase RLS, and the payroll-from-timesheets action prepares a reviewable draft without bypassing the existing payroll save flow.
+Apply [`supabase/migrations/20261003175100_timesheets.sql`](./supabase/migrations/20261003175100_timesheets.sql), [`supabase/migrations/20261004000000_phase3_payroll_integrity.sql`](./supabase/migrations/20261004000000_phase3_payroll_integrity.sql), then [`supabase/migrations/20261005000000_local_first_cache_realtime.sql`](./supabase/migrations/20261005000000_local_first_cache_realtime.sql) after the existing payroll role and audit log migrations. The migrations add authenticated `admin`/`hr` row-level access, daily-entry uniqueness, shift validation, payroll lifecycle protection, and the Realtime publication required to keep the browser's per-user Dexie cache current. No Edge Function is needed: writes go to Supabase first, and RLS remains authoritative.
+
+## Local cache and backup/recovery
+
+Employees, payroll, advances, timesheets, and site allocations are read from a user-scoped Dexie cache after one initial Supabase refresh. Changes made by any authorized client flow through Supabase Realtime and update the local cache; writes are sent to Supabase first, and the cache is updated from the successful response. The admin audit viewer remains paginated from Supabase and is not mirrored locally. The cache is not a backup and is scoped/cleared on sign out.
+
+Follow [`docs/operations.md`](./docs/operations.md) to configure managed backups, create encrypted logical data backups, and run a recovery drill against a matching staging project.
+
+Run `npm run test:ops` to validate backup/restore script guardrails using mocked PostgreSQL tools. This does not replace the staging restore drill.

@@ -10,6 +10,7 @@ const PAGE_SIZE = 50;
 const TABLE_LABELS: Record<string, string> = {
   advance_transactions: "Advance",
   employees: "Employee",
+  payroll_site_allocations: "Payroll site allocation",
   payroll_batches: "Payroll batch",
   payroll_lines: "Payroll line",
   timesheets: "Attendance",
@@ -96,7 +97,8 @@ export function AuditHistoryTab() {
           <div>
             <h2 className="font-display text-lg font-extrabold text-navy">Audit log</h2>
             <p className="text-xs text-muted-foreground">
-              Database changes, recorded with the acting account and exact time.
+              Payroll data changes, recorded with the acting account, exact time, and before/after
+              values.
             </p>
           </div>
         </div>

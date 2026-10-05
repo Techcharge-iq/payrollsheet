@@ -1,12 +1,203 @@
 import { useMemo, useState } from "react";
 import { CalendarDays, Clock3, MapPin, Users } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
-import { useTimesheetsForMonth } from "@/lib/payroll-data";
+import { useTimesheetsForMonth, type TimesheetRecord } from "@/lib/payroll-data";
 import { currentPayrollMonth, fmt, monthLabel, payrollMonthOptions } from "@/lib/payroll";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { card, select } from "./ui";
 
 interface Props {
   employees: Employee[];
+}
+
+interface AttendanceMatrixRow {
+  id: number;
+  name: string;
+  trade: string;
+  hours: number;
+}
+
+function AttendanceMatrix({
+  title,
+  description,
+  days,
+  rows,
+  entryByEmployeeDay,
+  site,
+}: {
+  title: string;
+  description: string;
+  days: string[];
+  rows: AttendanceMatrixRow[];
+  entryByEmployeeDay: Map<string, TimesheetRecord>;
+  site?: string;
+}) {
+  return (
+    <div className={card + " overflow-hidden"}>
+      <div className="border-b border-border px-4 py-3">
+        <h3 className="font-bold text-navy">{title}</h3>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      {rows.length === 0 ? (
+        <p className="p-8 text-center text-sm text-muted-foreground">
+          No workers recorded for this report.
+        </p>
+      ) : (
+        <TooltipProvider delayDuration={250}>
+          <div className="max-h-[70vh] overflow-auto">
+            <table className="w-full min-w-max border-separate border-spacing-0 text-xs">
+              <thead className="sticky top-0 z-20 bg-navy-soft text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                <tr>
+                  <th className="sticky left-0 z-30 min-w-52 border-b border-r border-border bg-navy-soft px-3 py-2 text-left">
+                    Name of staff
+                  </th>
+                  <th className="sticky left-52 z-30 min-w-14 border-b border-r border-border bg-navy-soft px-2 py-2 text-left">
+                    Trade
+                  </th>
+                  {days.map((date) => (
+                    <th
+                      key={date}
+                      className="min-w-11 border-b border-r border-border px-1 py-2 text-center"
+                    >
+                      {Number(date.slice(-2))}
+                    </th>
+                  ))}
+                  <th className="sticky right-0 z-30 min-w-20 border-b border-l border-border bg-navy-soft px-2 py-2 text-right">
+                    Total hrs
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.id}>
+                    <th className="sticky left-0 z-10 min-w-52 border-b border-r border-border bg-background px-3 py-1.5 text-left font-medium text-slate-800">
+                      {row.name}
+                    </th>
+                    <td className="sticky left-52 z-10 min-w-14 border-b border-r border-border bg-background px-2 py-1.5 text-slate-600">
+                      {row.trade}
+                    </td>
+                    {days.map((date) => (
+                      <td
+                        key={date}
+                        className="border-b border-r border-border px-0.5 py-1 text-center"
+                      >
+                        <AttendanceCell
+                          date={date}
+                          entry={entryByEmployeeDay.get(`${row.id}:${date}`)}
+                          site={site}
+                        />
+                      </td>
+                    ))}
+                    <td className="sticky right-0 z-10 border-b border-l border-border bg-background px-2 py-1.5 text-right font-bold text-navy">
+                      {fmt(row.hours)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </TooltipProvider>
+      )}
+    </div>
+  );
+}
+
+function isWorked(entry: TimesheetRecord) {
+  return entry.status === "PRESENT" || entry.status === "HALF_DAY";
+}
+
+function isFriday(date: string) {
+  return new Date(`${date}T00:00:00`).getDay() === 5;
+}
+
+function compactHours(hours: number) {
+  return String(Number(hours.toFixed(3)));
+}
+
+function netHours(entry: TimesheetRecord) {
+  return Number(entry.total_hours ?? Number(entry.regular_hours) + Number(entry.overtime_hours));
+}
+
+function AttendanceCell({
+  date,
+  entry,
+  site,
+}: {
+  date: string;
+  entry: TimesheetRecord | undefined;
+  site?: string;
+}) {
+  const worked = entry ? isWorked(entry) : false;
+  const isDifferentSite = Boolean(worked && site && entry.site !== site);
+  const label =
+    entry?.status === "ABSENT"
+      ? "A"
+      : worked
+        ? isDifferentSite
+          ? "T"
+          : compactHours(netHours(entry))
+        : entry?.status === "LEAVE"
+          ? "L"
+          : entry?.status === "HOLIDAY"
+            ? "H"
+            : isFriday(date)
+              ? "F"
+              : "";
+  const cellStyle =
+    label === "A"
+      ? "bg-[#d98270] text-white"
+      : label === "F"
+        ? "bg-blue-500 text-white"
+        : label === "T"
+          ? "bg-amber-100 font-bold text-amber-900"
+          : label === "L" || label === "H"
+            ? "bg-slate-100 text-slate-600"
+            : "text-slate-800";
+  const dateLabel = new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+  });
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          aria-label={`${dateLabel}: ${label || "no attendance recorded"}`}
+          className={`inline-flex min-h-8 min-w-10 items-center justify-center rounded-sm px-1 text-xs ${cellStyle}`}
+        >
+          {label || "—"}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-56 space-y-1 text-left">
+        <p className="font-semibold">{dateLabel}</p>
+        {worked && entry ? (
+          <>
+            <p>{isDifferentSite ? `Worked at: ${entry.site}` : `Site: ${entry.site}`}</p>
+            <p>
+              Check-in: {entry.in_time?.slice(0, 5) ?? "—"} · Check-out:{" "}
+              {entry.out_time?.slice(0, 5) ?? "—"}
+            </p>
+            <p>Break: {fmt(Number(entry.break_hours))} hrs</p>
+            {!isDifferentSite && <p>Net hours: {compactHours(netHours(entry))}</p>}
+          </>
+        ) : (
+          <p>
+            {entry?.status === "ABSENT"
+              ? "Absent"
+              : entry?.status === "LEAVE"
+                ? "Leave"
+                : entry?.status === "HOLIDAY"
+                  ? "Holiday"
+                  : label === "F"
+                    ? "Friday"
+                    : "No attendance recorded"}
+          </p>
+        )}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 export function AttendanceReportTab({ employees }: Props) {
@@ -44,32 +235,32 @@ export function AttendanceReportTab({ employees }: Props) {
   const daysInMonth = month
     ? new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()
     : 0;
-  const dailyRows = Array.from({ length: daysInMonth }, (_, index) => {
+  const reportDays = Array.from({ length: daysInMonth }, (_, index) => {
     const day = String(index + 1).padStart(2, "0");
-    const date = `${month}-${day}`;
-    return { date, entry: employeeRows.find((row) => row.work_date === date) };
+    return `${month}-${day}`;
   });
+  const entryByEmployeeDay = useMemo(
+    () => new Map(reportRows.map((entry) => [`${entry.employee_id}:${entry.work_date}`, entry])),
+    [reportRows],
+  );
 
   const siteRows = useMemo(() => {
     const grouped = new Map<
       number,
-      { employee: Employee | undefined; days: number; hours: number; foremen: Set<string> }
+      { employee: Employee | undefined; days: number; hours: number }
     >();
     reportRows
-      .filter(
-        (entry) =>
-          entry.site === site && (entry.status === "PRESENT" || entry.status === "HALF_DAY"),
-      )
+      .filter((entry) => entry.site === site)
       .forEach((entry) => {
         const current = grouped.get(entry.employee_id) ?? {
           employee: employees.find((employee) => employee.id === entry.employee_id),
           days: 0,
           hours: 0,
-          foremen: new Set<string>(),
         };
-        current.days += 1;
-        current.hours += Number(entry.regular_hours) + Number(entry.overtime_hours);
-        current.foremen.add(entry.foreman);
+        if (isWorked(entry)) {
+          current.days += 1;
+          current.hours += netHours(entry);
+        }
         grouped.set(entry.employee_id, current);
       });
     return [...grouped.entries()]
@@ -89,7 +280,7 @@ export function AttendanceReportTab({ employees }: Props) {
     .reduce(
       (totals, entry) => ({
         days: totals.days + 1,
-        hours: totals.hours + Number(entry.regular_hours) + Number(entry.overtime_hours),
+        hours: totals.hours + netHours(entry),
       }),
       { days: 0, hours: 0 },
     );
@@ -217,54 +408,20 @@ export function AttendanceReportTab({ employees }: Props) {
                 </div>
               ))}
             </div>
-            <div className={card + " overflow-hidden"}>
-              <div className="border-b border-border px-4 py-3">
-                <h3 className="font-bold text-navy">
-                  {selectedEmployee.name} · {monthLabel(month)}
-                </h3>
-                <p className="text-xs text-muted-foreground">
-                  Daily attendance with hours, site and foreman.
-                </p>
-              </div>
-              <div className="max-h-[65vh] overflow-auto">
-                <table className="w-full min-w-[560px] text-left text-sm">
-                  <thead className="sticky top-0 bg-navy-soft text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3">Date</th>
-                      <th className="px-4 py-3">Status</th>
-                      <th className="px-4 py-3">Hours</th>
-                      <th className="px-4 py-3">Site</th>
-                      <th className="px-4 py-3">Foreman</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dailyRows.map(({ date, entry }) => (
-                      <tr key={date} className="border-t border-border">
-                        <td className="px-4 py-2.5 font-medium text-slate-700">
-                          {new Date(`${date}T00:00:00`).toLocaleDateString("en-GB", {
-                            weekday: "short",
-                            day: "2-digit",
-                            month: "short",
-                          })}
-                        </td>
-                        <td className="px-4 py-2.5 font-medium">
-                          {entry?.status.replaceAll("_", " ") ?? "—"}
-                        </td>
-                        <td className="px-4 py-2.5 font-bold text-navy">
-                          {entry
-                            ? fmt(Number(entry.regular_hours) + Number(entry.overtime_hours))
-                            : "—"}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          {entry?.site ?? <span className="text-slate-300">No attendance</span>}
-                        </td>
-                        <td className="px-4 py-2.5">{entry?.foreman ?? "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <AttendanceMatrix
+              title={`${selectedEmployee.name} · ${monthLabel(month)}`}
+              description="Daily net hours. Hover or focus a cell to see shift times and break."
+              days={reportDays}
+              rows={[
+                {
+                  id: selectedEmployee.id,
+                  name: selectedEmployee.name,
+                  trade: selectedEmployee.trade,
+                  hours: staffTotals.hours,
+                },
+              ]}
+              entryByEmployeeDay={entryByEmployeeDay}
+            />
           </>
         )
       ) : !site ? (
@@ -292,57 +449,19 @@ export function AttendanceReportTab({ employees }: Props) {
               </div>
             ))}
           </div>
-          <div className={card + " overflow-hidden"}>
-            <div className="border-b border-border px-4 py-3">
-              <h3 className="flex items-center gap-2 font-bold text-navy">
-                <MapPin size={16} />
-                {site}
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                {monthLabel(month)} · worker attendance totals
-              </p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-sm">
-                <thead className="bg-navy-soft text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Worker</th>
-                    <th className="px-4 py-3">Trade</th>
-                    <th className="px-4 py-3 text-right">Days present</th>
-                    <th className="px-4 py-3 text-right">Total hours</th>
-                    <th className="px-4 py-3">Foreman(s)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {siteRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
-                        No workers recorded at this site for {monthLabel(month)}.
-                      </td>
-                    </tr>
-                  ) : (
-                    siteRows.map((worker) => (
-                      <tr key={worker.id} className="border-t border-border">
-                        <td className="px-4 py-3 font-semibold text-navy">
-                          {worker.employee?.name ?? "Former employee"}
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">
-                          {worker.employee?.trade ?? "—"}
-                        </td>
-                        <td className="px-4 py-3 text-right font-semibold">{worker.days}</td>
-                        <td className="px-4 py-3 text-right font-bold text-navy">
-                          {fmt(worker.hours)}
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">
-                          {[...worker.foremen].join(", ")}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <AttendanceMatrix
+            title={`${monthLabel(month)} · ${site}`}
+            description="T means the employee worked at another site. Hover or focus a cell for site and shift details."
+            days={reportDays}
+            rows={siteRows.map((worker) => ({
+              id: worker.id,
+              name: worker.employee?.name ?? "Former employee",
+              trade: worker.employee?.trade ?? "—",
+              hours: worker.hours,
+            }))}
+            entryByEmployeeDay={entryByEmployeeDay}
+            site={site}
+          />
         </>
       )}
     </section>

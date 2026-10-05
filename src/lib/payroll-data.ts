@@ -3,12 +3,13 @@ import { db as supabase, dbAny } from "@/integrations/supabase/external-client";
 import type { Tables, TablesInsert } from "@/integrations/supabase/types";
 import type { AdvanceTx, Employee, PayrollBatch, PayrollBatchStatus, PayrollLine } from "./payroll";
 import { calculatePayroll, PAYROLL_CALCULATION_VERSION, PAYROLL_POLICY, toNum } from "./payroll";
+import { deleteCachedRows, readCachedRows, writeCachedRows } from "./payroll-cache";
 
 export type TimesheetRecord = Tables<"timesheets">;
 export type PayrollSiteAllocation = Tables<"payroll_site_allocations">;
 type TimesheetInsert = TablesInsert<"timesheets">;
 
-interface AdvanceTransactionRecord {
+interface AdvanceTransactionRecord extends Record<string, unknown> {
   id: string | number;
   employee_id: string | number;
   date: string | null;
@@ -18,22 +19,17 @@ interface AdvanceTransactionRecord {
   notes: string | null;
 }
 
-const TIMESHEET_FIELDS =
-  "id, employee_id, site, foreman, work_date, status, in_time, out_time, break_hours, total_hours, regular_hours, overtime_hours, remarks, created_at";
-
 export function useTimesheetsForDate(workDate: string) {
   return useQuery({
     queryKey: ["timesheets", "date", workDate],
     queryFn: async (): Promise<TimesheetRecord[]> => {
-      const { data, error } = await supabase
-        .from("timesheets")
-        .select(TIMESHEET_FIELDS)
-        .eq("work_date", workDate)
-        .order("employee_id");
-      if (error) throw error;
-      return data ?? [];
+      const rows = await readCachedRows<TimesheetRecord>("timesheets", { workDate });
+      return rows
+        .filter((row) => row.work_date === workDate)
+        .sort((a, b) => a.employee_id - b.employee_id);
     },
     enabled: /^\d{4}-\d{2}-\d{2}$/.test(workDate),
+    staleTime: 60_000,
   });
 }
 
@@ -45,29 +41,13 @@ export function useTimesheetsForMonth(month: string) {
         throw new Error("Select a valid attendance month.");
       }
 
-      const year = Number(month.slice(0, 4));
-      const monthNumber = Number(month.slice(5, 7));
-      const nextYear = monthNumber === 12 ? year + 1 : year;
-      const nextMonth = monthNumber === 12 ? 1 : monthNumber + 1;
-      const startDate = `${month}-01`;
-      const endDate = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`;
-      const pageSize = 1000;
-      const records: TimesheetRecord[] = [];
-      for (let start = 0; ; start += pageSize) {
-        const { data, error } = await supabase
-          .from("timesheets")
-          .select(TIMESHEET_FIELDS)
-          .gte("work_date", startDate)
-          .lt("work_date", endDate)
-          .order("work_date", { ascending: true })
-          .order("employee_id", { ascending: true })
-          .range(start, start + pageSize - 1);
-        if (error) throw error;
-        records.push(...(data ?? []));
-        if (!data || data.length < pageSize) return records;
-      }
+      const rows = await readCachedRows<TimesheetRecord>("timesheets", { month });
+      return rows
+        .filter((row) => row.work_date.startsWith(`${month}-`))
+        .sort((a, b) => a.work_date.localeCompare(b.work_date) || a.employee_id - b.employee_id);
     },
     enabled: /^\d{4}-(0[1-9]|1[0-2])$/.test(month),
+    staleTime: 60_000,
   });
 }
 
@@ -78,24 +58,15 @@ export function usePayrollSiteAllocations(month: string, enabled = true) {
       if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
         throw new Error("Select a valid payroll month for site allocation.");
       }
-      const pageSize = 1000;
-      const records: PayrollSiteAllocation[] = [];
-      for (let start = 0; ; start += pageSize) {
-        const { data, error } = await supabase
-          .from("payroll_site_allocations")
-          .select(
-            "id, payroll_line_id, employee_id, month, site, foreman, regular_hours, overtime_hours, allocated_regular_pay, allocated_overtime_pay, allocated_allowances, allocated_gross_cost, allocation_basis, calculation_version, created_at",
-          )
-          .eq("month", month)
-          .order("site")
-          .order("foreman")
-          .range(start, start + pageSize - 1);
-        if (error) throw error;
-        records.push(...(data ?? []));
-        if (!data || data.length < pageSize) return records;
-      }
+      const rows = await readCachedRows<PayrollSiteAllocation>("payroll_site_allocations", {
+        month,
+      });
+      return rows
+        .filter((row) => row.month === month)
+        .sort((a, b) => a.site.localeCompare(b.site) || a.foreman.localeCompare(b.foreman));
     },
     enabled: enabled && /^\d{4}-(0[1-9]|1[0-2])$/.test(month),
+    staleTime: 60_000,
   });
 }
 
@@ -104,29 +75,31 @@ export function useSaveTimesheets() {
   return useMutation({
     mutationFn: async (rows: TimesheetInsert[]) => {
       if (!rows.length) throw new Error("Add at least one complete attendance entry.");
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("timesheets")
-        .upsert(rows, { onConflict: "employee_id,work_date" });
+        .upsert(rows, { onConflict: "employee_id,work_date" })
+        .select("*");
       if (error) throw error;
+      await writeCachedRows("timesheets", data ?? []);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["timesheets"] }),
   });
 }
 
-export function useEmployees() {
+export function useEmployees(enabled = true) {
   return useQuery({
     queryKey: ["employees"],
     queryFn: async (): Promise<Employee[]> => {
-      const { data, error } = await supabase
-        .from("employees")
-        .select("id, name, trade, id_number, hourly_rate, status")
-        .order("name");
-      if (error) throw error;
-      return (data ?? []).map((e) => ({
-        ...e,
-        hourly_rate: Number(e.hourly_rate),
-      })) as Employee[];
+      const data = await readCachedRows<Tables<"employees">>("employees");
+      return data
+        .map((e) => ({
+          ...e,
+          hourly_rate: Number(e.hourly_rate),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)) as Employee[];
     },
+    enabled,
+    staleTime: 60_000,
   });
 }
 
@@ -137,44 +110,12 @@ export function useBatches(month?: string, enabled = true) {
       if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
         throw new Error("Select a valid payroll month.");
       }
-      const pageSize = 1000;
-      const batches: Tables<"payroll_batches">[] = [];
-      const lines: Tables<"payroll_lines">[] = [];
-      for (let start = 0; ; start += pageSize) {
-        let batchQuery = supabase
-          .from("payroll_batches")
-          .select(
-            "id, month, site, foreman, created_at, status, approved_by, approved_at, locked_by, locked_at, paid_by, paid_at",
-          )
-          .order("month", { ascending: false })
-          .order("id");
-        let lineQuery = supabase
-          .from("payroll_lines")
-          .select(
-            "id, batch_id, employee_id, month, foreman, hours, rate, food_deduction, prev_advance, new_advance, other_deduction, net_salary, paid, created_at, calculation_version, regular_hours, overtime_hours, regular_pay, overtime_pay, allowances, gross_pay, deductions, advance_recovery, net_pay",
-          )
-          .order("month", { ascending: false })
-          .order("id");
-        if (month) {
-          batchQuery = batchQuery.eq("month", month);
-          lineQuery = lineQuery.eq("month", month);
-        }
-        const [{ data: batchPage, error: batchError }, { data: linePage, error: lineError }] =
-          await Promise.all([
-            batchQuery.range(start, start + pageSize - 1),
-            lineQuery.range(start, start + pageSize - 1),
-          ]);
-        if (batchError) throw batchError;
-        if (lineError) throw lineError;
-        batches.push(...(batchPage ?? []));
-        lines.push(...(linePage ?? []));
-        if (
-          (!batchPage || batchPage.length < pageSize) &&
-          (!linePage || linePage.length < pageSize)
-        ) {
-          break;
-        }
-      }
+      const [allBatches, allLines] = await Promise.all([
+        readCachedRows<Tables<"payroll_batches">>("payroll_batches", month ? { month } : {}),
+        readCachedRows<Tables<"payroll_lines">>("payroll_lines", month ? { month } : {}),
+      ]);
+      const batches = allBatches;
+      const lines = allLines;
       const byBatch: Record<string, PayrollLine[]> = {};
       lines.forEach((l) => {
         const line: PayrollLine = {
@@ -219,6 +160,7 @@ export function useBatches(month?: string, enabled = true) {
       }));
     },
     enabled,
+    staleTime: 60_000,
   });
 }
 
@@ -226,16 +168,24 @@ export function usePayrollAdvanceBalancesBefore(month: string) {
   return useQuery({
     queryKey: ["payroll_advance_balance_before", month],
     queryFn: async (): Promise<Array<{ employee_id: number; balance: number }>> => {
-      const { data, error } = await supabase.rpc("payroll_advance_balances_before", {
-        target_month: month,
-      });
-      if (error) throw error;
-      return (data ?? []).map((row) => ({
-        employee_id: row.employee_id,
-        balance: Number(row.balance),
+      const lines = await readCachedRows<Tables<"payroll_lines">>("payroll_lines");
+      const balances = new Map<number, number>();
+      for (const line of lines) {
+        if (line.month >= month) continue;
+        balances.set(
+          line.employee_id,
+          (balances.get(line.employee_id) ?? 0) +
+            Number(line.new_advance ?? 0) -
+            Number(line.prev_advance ?? 0),
+        );
+      }
+      return [...balances].map(([employee_id, amount]) => ({
+        employee_id,
+        balance: Math.max(0, Math.round(amount * 1000) / 1000),
       }));
     },
     enabled: /^\d{4}-(0[1-9]|1[0-2])$/.test(month),
+    staleTime: 60_000,
   });
 }
 
@@ -251,11 +201,22 @@ export function useSaveEmployee() {
         status: emp.status ?? "Active",
       };
       if (emp.id) {
-        const { error } = await supabase.from("employees").update(payload).eq("id", emp.id);
+        const { data, error } = await supabase
+          .from("employees")
+          .update(payload)
+          .eq("id", emp.id)
+          .select("*")
+          .single();
         if (error) throw error;
+        await writeCachedRows("employees", [data]);
       } else {
-        const { error } = await supabase.from("employees").insert(payload);
+        const { data, error } = await supabase
+          .from("employees")
+          .insert(payload)
+          .select("*")
+          .single();
         if (error) throw error;
+        await writeCachedRows("employees", [data]);
       }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["employees"] }),
@@ -268,19 +229,23 @@ export function useSaveBatch(canDelete = false) {
     mutationFn: async (batch: PayrollBatch) => {
       let batchId = batch.id;
       if (batchId) {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from("payroll_batches")
           .update({ month: batch.month, site: batch.site, foreman: batch.foreman })
-          .eq("id", batchId);
+          .eq("id", batchId)
+          .select("*")
+          .single();
         if (error) throw error;
+        await writeCachedRows("payroll_batches", [data]);
       } else {
         const { data, error } = await supabase
           .from("payroll_batches")
           .insert({ month: batch.month, site: batch.site, foreman: batch.foreman })
-          .select("id")
+          .select("*")
           .single();
         if (error) throw error;
         batchId = data.id;
+        await writeCachedRows("payroll_batches", [data]);
       }
       const rows = batch.lines
         .filter((l) => l.employee_id)
@@ -339,8 +304,12 @@ export function useSaveBatch(canDelete = false) {
       }
 
       if (rows.length) {
-        const { error } = await supabase.from("payroll_lines").upsert(rows, { onConflict: "id" });
+        const { data, error } = await supabase
+          .from("payroll_lines")
+          .upsert(rows, { onConflict: "id" })
+          .select("*");
         if (error) throw error;
+        await writeCachedRows("payroll_lines", data ?? []);
       }
 
       if (batch.id && canDelete) {
@@ -349,6 +318,7 @@ export function useSaveBatch(canDelete = false) {
         if (removedIds.length) {
           const { error } = await supabase.from("payroll_lines").delete().in("id", removedIds);
           if (error) throw error;
+          await deleteCachedRows("payroll_lines", removedIds);
         }
       }
       return batchId;
@@ -363,6 +333,12 @@ export function useDeleteBatch() {
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("payroll_batches").delete().eq("id", id);
       if (error) throw error;
+      const lines = await readCachedRows<Tables<"payroll_lines">>("payroll_lines");
+      await deleteCachedRows(
+        "payroll_lines",
+        lines.filter((line) => line.batch_id === id).map((line) => line.id),
+      );
+      await deleteCachedRows("payroll_batches", [id]);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["payroll_batches"] }),
   });
@@ -372,11 +348,14 @@ export function useUpdateBatchMeta() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, site, foreman }: { id: string; site: string; foreman: string }) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("payroll_batches")
         .update({ site, foreman })
-        .eq("id", id);
+        .eq("id", id)
+        .select("*")
+        .single();
       if (error) throw error;
+      await writeCachedRows("payroll_batches", [data]);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["payroll_batches"] }),
   });
@@ -386,8 +365,14 @@ export function useUpdateBatchStatus() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, status }: { id: string; status: PayrollBatchStatus }) => {
-      const { error } = await supabase.from("payroll_batches").update({ status }).eq("id", id);
+      const { data, error } = await supabase
+        .from("payroll_batches")
+        .update({ status })
+        .eq("id", id)
+        .select("*")
+        .single();
       if (error) throw error;
+      await writeCachedRows("payroll_batches", [data]);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["payroll_batches"] }),
   });
@@ -397,8 +382,14 @@ export function useUpdateLineForeman() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, foreman }: { id: string; foreman: string }) => {
-      const { error } = await supabase.from("payroll_lines").update({ foreman }).eq("id", id);
+      const { data, error } = await supabase
+        .from("payroll_lines")
+        .update({ foreman })
+        .eq("id", id)
+        .select("*")
+        .single();
       if (error) throw error;
+      await writeCachedRows("payroll_lines", [data]);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["payroll_batches"] }),
   });
@@ -406,34 +397,25 @@ export function useUpdateLineForeman() {
 
 /* ---------------- Advance transactions ---------------- */
 
-export function useAdvances() {
+export function useAdvances(enabled = true) {
   return useQuery({
     queryKey: ["advance_transactions"],
     queryFn: async (): Promise<AdvanceTx[]> => {
-      const pageSize = 1000;
-      const records: AdvanceTx[] = [];
-      for (let start = 0; ; start += pageSize) {
-        const { data, error } = await dbAny
-          .from("advance_transactions")
-          .select("id, employee_id, date, amount, reason, payment_method, notes")
-          .order("date", { ascending: false })
-          .order("id", { ascending: false })
-          .range(start, start + pageSize - 1);
-        if (error) throw error;
-        records.push(
-          ...((data ?? []) as AdvanceTransactionRecord[]).map((a) => ({
-            id: String(a.id),
-            employee_id: Number(a.employee_id),
-            date: a.date ?? "",
-            amount: Number(a.amount),
-            reason: a.reason ?? "",
-            payment_method: a.payment_method ?? "Cash",
-            notes: a.notes ?? "",
-          })),
-        );
-        if (!data || data.length < pageSize) return records;
-      }
+      const data = await readCachedRows<AdvanceTransactionRecord>("advance_transactions");
+      return data
+        .map((a) => ({
+          id: String(a.id),
+          employee_id: Number(a.employee_id),
+          date: a.date ?? "",
+          amount: Number(a.amount),
+          reason: a.reason ?? "",
+          payment_method: a.payment_method ?? "Cash",
+          notes: a.notes ?? "",
+        }))
+        .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
     },
+    enabled,
+    staleTime: 60_000,
   });
 }
 
@@ -450,11 +432,22 @@ export function useSaveAdvance() {
         notes: tx.notes ?? "",
       };
       if (tx.id) {
-        const { error } = await dbAny.from("advance_transactions").update(payload).eq("id", tx.id);
+        const { data, error } = await dbAny
+          .from("advance_transactions")
+          .update(payload)
+          .eq("id", tx.id)
+          .select("*")
+          .single();
         if (error) throw error;
+        await writeCachedRows("advance_transactions", [data]);
       } else {
-        const { error } = await dbAny.from("advance_transactions").insert(payload);
+        const { data, error } = await dbAny
+          .from("advance_transactions")
+          .insert(payload)
+          .select("*")
+          .single();
         if (error) throw error;
+        await writeCachedRows("advance_transactions", [data]);
       }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["advance_transactions"] }),
@@ -467,6 +460,7 @@ export function useDeleteAdvance() {
     mutationFn: async (id: string) => {
       const { error } = await dbAny.from("advance_transactions").delete().eq("id", id);
       if (error) throw error;
+      await deleteCachedRows("advance_transactions", [id]);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["advance_transactions"] }),
   });
