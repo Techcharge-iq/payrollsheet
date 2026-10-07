@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  CalendarDays,
   Check,
   ChevronDown,
   Copy,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
 import { useTimesheetsForDate, type TimesheetRecord } from "@/lib/payroll-data";
+import { MonthlyAttendanceDialog } from "./MonthlyAttendanceDialog";
 import { btnGold, btnOutline, card, input, select } from "./ui";
 
 interface Props {
@@ -140,6 +142,12 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   const [employeePickerOpen, setEmployeePickerOpen] = useState(false);
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [copyPickerOpen, setCopyPickerOpen] = useState(false);
+  const [monthlyAttendanceOpen, setMonthlyAttendanceOpen] = useState(false);
+  const pendingDateEdit = useRef<{
+    batchKey: string | null;
+    site: string;
+    foreman: string;
+  } | null>(null);
 
   const activeEmployees = useMemo(
     () =>
@@ -196,6 +204,37 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
     [editingKey, selectedEmployees, timesheets],
   );
   const selectedCount = selectedIds.length;
+
+  useEffect(() => {
+    const pending = pendingDateEdit.current;
+    if (!pending || timesheetsQuery.isLoading || timesheetsQuery.error) return;
+    pendingDateEdit.current = null;
+
+    const batch = pending.batchKey
+      ? savedBatches.find((candidate) => candidate.key === pending.batchKey)
+      : undefined;
+    if (batch) {
+      setSite(batch.site);
+      setForeman(batch.foreman);
+      setEditingKey(batch.key);
+      setSelectedIds(batch.entries.map((entry) => entry.employee_id));
+      setAttendance(
+        Object.fromEntries(
+          batch.entries.map((entry) => [entry.employee_id, attendanceFromRecord(entry)]),
+        ),
+      );
+    } else {
+      setSite(pending.site);
+      setForeman(pending.foreman);
+      setEditingKey(null);
+      setSelectedIds([]);
+      setAttendance({});
+    }
+    setDirty(false);
+    setEmployeeSearch("");
+    setEmployeePickerOpen(false);
+    setCopyPickerOpen(false);
+  }, [savedBatches, timesheetsQuery.error, timesheetsQuery.isLoading]);
 
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -433,9 +472,12 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
             type="date"
             value={workDate}
             onChange={(event) => {
-              if (!event.target.value || event.target.value === workDate || !confirmDiscard())
-                return;
-              setWorkDate(event.target.value);
+              const nextDate = event.target.value;
+              if (!nextDate || nextDate === workDate) return;
+              if (dirty && !window.confirm("Discard unsaved attendance batch changes?")) return;
+              pendingDateEdit.current = { batchKey: editingKey, site, foreman };
+              setDirty(false);
+              setWorkDate(nextDate);
               setCopyPickerOpen(false);
             }}
             className={`${input} rounded-md px-2 py-1 text-xs`}
@@ -468,6 +510,13 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
           />
         </label>
         <div className="attendance-batch-actions">
+          <button
+            type="button"
+            onClick={() => setMonthlyAttendanceOpen(true)}
+            className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
+          >
+            <CalendarDays size={13} /> Monthly employee entry
+          </button>
           <button
             type="button"
             onClick={copyPreviousDay}
@@ -975,6 +1024,15 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
             </div>
           </section>
         </>
+      )}
+      {monthlyAttendanceOpen && (
+        <MonthlyAttendanceDialog
+          employees={employees}
+          saving={saving}
+          onSave={onSave}
+          onOpenChange={setMonthlyAttendanceOpen}
+          notify={notify}
+        />
       )}
     </section>
   );

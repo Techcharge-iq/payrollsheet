@@ -667,7 +667,7 @@ export function PayrollTab({
   const startEdit = (batch: PayrollBatch) => {
     setImportErrors([]);
     setSubmitError("");
-    if (!["DRAFT", "REVIEW"].includes(batch.status)) {
+    if (!canDelete && !["DRAFT", "REVIEW"].includes(batch.status)) {
       notify(`Payroll batch in ${batch.status} status cannot be edited.`, "warn");
       return;
     }
@@ -1554,7 +1554,7 @@ export function PayrollTab({
               >
                 <Eye size={14} /> View
               </button>
-              {["DRAFT", "REVIEW"].includes(b.status) && (
+              {(canDelete || ["DRAFT", "REVIEW"].includes(b.status)) && (
                 <button onClick={() => startEdit(b)} className={btnPrimary}>
                   <Pencil size={14} /> Edit
                 </button>

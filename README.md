@@ -18,6 +18,8 @@ Advance carry-forward: Automatically carry each employee's unpaid/outstanding ad
 
 Supabase: Replace browser/session/local persistence with Supabase database storage. Preserve existing data structure where practical and use proper relational tables for employees, payroll batches and payroll lines.
 
+Monthly Payroll: Admins can edit batches in any status while lifecycle metadata remains protected. Daily Timesheets: Attendance can be edited by date or entered for one employee across a month; days without a selected status remain unrecorded.
+
 Important: modify the existing application only, preserve the current layout/theme, calculations and Cost Allocation functionality. Do not remove existing working features. Make the smallest clean changes necessary and ensure existing payroll data is not lost.
 
 This project was built with [Lovable](https://lovable.dev).
