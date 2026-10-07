@@ -424,6 +424,32 @@ test("monthly attendance entry saves only days with a selected status", async ({
   expect(backend.state.timesheets[0]?.["work_date"]).toMatch(/-\d{2}$/);
 });
 
+test("attendance batches can save direct total hours without shift columns", async ({ page }) => {
+  const backend = await mockPayrollBackend(page, "admin");
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.goto("/");
+  await expect(page.getByText("Syncing payroll data…")).toBeHidden({ timeout: 20_000 });
+  await openTab(page, "Daily Timesheets", false);
+  await page.getByLabel("Site / project").fill("North Campus");
+  await page.getByLabel("Foreman").fill("Samir");
+  await page.getByRole("button", { name: /Select employees/ }).click();
+  await page.locator(".absolute.z-30").getByText("Asha Khan", { exact: true }).click();
+  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("checkbox", { name: "In time", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "Out time", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "Break", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "Overtime", exact: true }).uncheck();
+  await page.getByLabel("Asha Khan total hours").fill("8.5");
+  await page.getByRole("button", { name: "Save Changes" }).click();
+
+  expect(backend.state.timesheets).toHaveLength(1);
+  expect(backend.state.timesheets[0]?.["status"]).toBe("PRESENT");
+  expect(backend.state.timesheets[0]?.["in_time"]).toBe("08:00");
+  expect(backend.state.timesheets[0]?.["out_time"]).toBe("16:30");
+  expect(backend.state.timesheets[0]?.["break_hours"]).toBe(0);
+  expect(backend.state.timesheets[0]?.["overtime_hours"]).toBe(0);
+});
+
 test("attendance report shows daily hours and hover details in the site matrix", async ({
   page,
 }) => {

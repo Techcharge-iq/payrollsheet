@@ -1222,7 +1222,7 @@ export function PayrollTab({
                                 step="0.01"
                                 value={l[f] as string}
                                 onChange={(e) => setLine(idx, { [f]: e.target.value })}
-                                className={`${inputSm} w-20 text-right ${f === "new_advance" && toNum(l.new_advance) > 0 ? "border-gold bg-gold/10 font-extrabold text-warn" : ""}`}
+                                className={`${inputSm} w-20 text-right`}
                               />
                             </td>
                           ))}
@@ -1243,7 +1243,7 @@ export function PayrollTab({
                                 step="0.01"
                                 value={l[f] as string}
                                 onChange={(e) => setLine(idx, { [f]: e.target.value })}
-                                className={inputSm + " w-20 text-right"}
+                                className={`${inputSm} w-20 text-right ${f === "new_advance" && toNum(l.new_advance) > 0 ? "border-gold bg-gold/10 font-extrabold text-warn" : ""}`}
                               />
                             </td>
                           ))}
@@ -1555,7 +1555,9 @@ export function PayrollTab({
                           {fmt(toNum(line.food_deduction))}
                         </td>
                         <td className="px-3 py-2.5 text-right">{fmt(toNum(line.prev_advance))}</td>
-                        <td className="px-3 py-2.5 text-right"><NewAdvanceValue value={line.new_advance} /></td>
+                        <td className="px-3 py-2.5 text-right">
+                          <NewAdvanceValue value={line.new_advance} />
+                        </td>
                         <td className="px-3 py-2.5 text-right">
                           {fmt(toNum(line.other_deduction))}
                         </td>
@@ -1600,7 +1602,8 @@ export function PayrollTab({
                 </p>
                 {newAdvanceCount > 0 && (
                   <p className="mt-1 inline-flex rounded-md bg-gold/15 px-2 py-1 text-[11px] font-extrabold text-warn">
-                    {newAdvanceCount} new advance{newAdvanceCount === 1 ? "" : "s"} · {fmt(newAdvanceTotal)} OMR
+                    {newAdvanceCount} new advance{newAdvanceCount === 1 ? "" : "s"} ·{" "}
+                    {fmt(newAdvanceTotal)} OMR
                   </p>
                 )}
               </div>

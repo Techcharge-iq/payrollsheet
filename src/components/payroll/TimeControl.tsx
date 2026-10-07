@@ -25,7 +25,7 @@ export function TimeControl({ value, onChange, label, disabled = false, compact 
         disabled={disabled}
         aria-label={`${label} 15 minutes earlier`}
         title="15 minutes earlier"
-        className={`${compact ? "h-8 w-8" : "h-11 w-11"} inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-card text-slate-600 hover:border-gold hover:bg-gold/10 disabled:opacity-40`}
+        className={`${compact ? "h-9 w-9" : "h-11 w-11"} inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-card text-slate-600 hover:border-gold hover:bg-gold/10 disabled:opacity-40`}
       >
         <Minus size={14} />
       </button>
@@ -35,7 +35,7 @@ export function TimeControl({ value, onChange, label, disabled = false, compact 
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
         aria-label={label}
-        className={`${input} ${compact ? "h-9 min-w-28 px-2 py-1" : "h-11 min-w-32 px-3 py-2"} text-center font-bold tabular-nums disabled:opacity-50`}
+        className={`${input} ${compact ? "h-10 min-w-32 px-2 py-1" : "h-11 min-w-32 px-3 py-2"} text-center font-bold tabular-nums disabled:opacity-50`}
       />
       <button
         type="button"
@@ -43,7 +43,7 @@ export function TimeControl({ value, onChange, label, disabled = false, compact 
         disabled={disabled}
         aria-label={`${label} 15 minutes later`}
         title="15 minutes later"
-        className={`${compact ? "h-8 w-8" : "h-11 w-11"} inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-card text-slate-600 hover:border-gold hover:bg-gold/10 disabled:opacity-40`}
+        className={`${compact ? "h-9 w-9" : "h-11 w-11"} inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-card text-slate-600 hover:border-gold hover:bg-gold/10 disabled:opacity-40`}
       >
         <Plus size={14} />
       </button>

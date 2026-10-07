@@ -318,10 +318,20 @@ export function MonthlyAttendanceDialog({
                           />
                         </td>
                         <td className="px-2 py-1.5">
-                          <TimeControl value={row.inTime} disabled={!isWorked} onChange={(value) => updateDay(day, { inTime: value })} label={`Day ${day} in time`} />
+                          <TimeControl
+                            value={row.inTime}
+                            disabled={!isWorked}
+                            onChange={(value) => updateDay(day, { inTime: value })}
+                            label={`Day ${day} in time`}
+                          />
                         </td>
                         <td className="px-2 py-1.5">
-                          <TimeControl value={row.outTime} disabled={!isWorked} onChange={(value) => updateDay(day, { outTime: value })} label={`Day ${day} out time`} />
+                          <TimeControl
+                            value={row.outTime}
+                            disabled={!isWorked}
+                            onChange={(value) => updateDay(day, { outTime: value })}
+                            label={`Day ${day} out time`}
+                          />
                         </td>
                         <td className="px-2 py-1.5">
                           <input
@@ -352,7 +362,7 @@ export function MonthlyAttendanceDialog({
                             value={row.remarks}
                             onChange={(event) => updateDay(day, { remarks: event.target.value })}
                             aria-label={`Day ${day} remarks`}
-                            className={`${input} w-24 px-2 py-1`}
+                            className={`${input} attendance-notes-input w-12 px-1 py-1`}
                           />
                         </td>
                       </tr>
