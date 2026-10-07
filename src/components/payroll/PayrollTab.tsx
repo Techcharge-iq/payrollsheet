@@ -13,6 +13,7 @@ import {
   Plus,
   Save,
   Search,
+  Share2,
   Trash2,
   Upload,
   UserPlus,
@@ -44,6 +45,11 @@ import {
 } from "@/lib/payroll-data";
 import { downloadPayrollImportTemplate, readPayrollImport } from "@/lib/payroll-excel";
 import {
+  downloadPayrollBatch,
+  payrollBatchBlob,
+  payrollBatchFilename,
+} from "@/lib/payroll-batch-pdf";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -51,6 +57,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { btnGold, btnIcon, btnOutline, btnPrimary, card, input, inputSm, select } from "./ui";
+import { NewAdvanceValue } from "./NewAdvanceValue";
 
 interface Props {
   employees: Employee[];
@@ -464,6 +471,7 @@ export function PayrollTab({
   const [foremanLine, setForemanLine] = useState<number | null>(null);
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -929,6 +937,37 @@ export function PayrollTab({
     }
   };
 
+  const sharePayroll = async (batch: PayrollBatch) => {
+    setSharing(true);
+    try {
+      const blob = payrollBatchBlob(batch, employees);
+      const file = new File([blob], payrollBatchFilename(batch), { type: "application/pdf" });
+      const nav = navigator as Navigator & {
+        canShare?: (data: ShareData) => boolean;
+        share?: (data: ShareData) => Promise<void>;
+      };
+      if (nav.share && (!nav.canShare || nav.canShare({ files: [file] }))) {
+        await nav.share({
+          title: `${batch.site || "Payroll"} — ${monthLabel(batch.month)}`,
+          text: `Payroll report for ${batch.site || "site"}, ${monthLabel(batch.month)}.`,
+          files: [file],
+        });
+        return;
+      }
+      downloadPayrollBatch(batch, employees);
+      const message = encodeURIComponent(
+        `Payroll report for ${batch.site || "site"}, ${monthLabel(batch.month)}. Please attach the downloaded PDF.`,
+      );
+      window.open(`https://wa.me/?text=${message}`, "_blank", "noopener,noreferrer");
+      notify("The PDF was downloaded. Attach it in the WhatsApp window that opened.", "warn");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      notify(error instanceof Error ? error.message : "Could not share the payroll PDF.", "warn");
+    } finally {
+      setSharing(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className={card + " mobile-toolbar flex flex-col gap-3 p-4 sm:flex-row sm:items-center"}>
@@ -1183,7 +1222,7 @@ export function PayrollTab({
                                 step="0.01"
                                 value={l[f] as string}
                                 onChange={(e) => setLine(idx, { [f]: e.target.value })}
-                                className={inputSm + " w-20 text-right"}
+                                className={`${inputSm} w-20 text-right ${f === "new_advance" && toNum(l.new_advance) > 0 ? "border-gold bg-gold/10 font-extrabold text-warn" : ""}`}
                               />
                             </td>
                           ))}
@@ -1330,7 +1369,7 @@ export function PayrollTab({
                             step="0.01"
                             value={l[f] as string}
                             onChange={(e) => setLine(idx, { [f]: e.target.value })}
-                            className={inputSm + " text-right"}
+                            className={`${inputSm} text-right ${f === "new_advance" && toNum(l.new_advance) > 0 ? "border-gold bg-gold/10 font-extrabold text-warn" : ""}`}
                           />
                         </label>
                       ))}
@@ -1417,6 +1456,24 @@ export function PayrollTab({
               </DialogDescription>
             </DialogHeader>
 
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void sharePayroll(viewingBatch)}
+                disabled={sharing}
+                className={btnGold}
+              >
+                <Share2 size={16} /> {sharing ? "Preparing PDF…" : "Share payroll"}
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadPayrollBatch(viewingBatch, employees)}
+                className={btnOutline}
+              >
+                <Download size={16} /> Download PDF
+              </button>
+            </div>
+
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
                 {
@@ -1498,7 +1555,7 @@ export function PayrollTab({
                           {fmt(toNum(line.food_deduction))}
                         </td>
                         <td className="px-3 py-2.5 text-right">{fmt(toNum(line.prev_advance))}</td>
-                        <td className="px-3 py-2.5 text-right">{fmt(toNum(line.new_advance))}</td>
+                        <td className="px-3 py-2.5 text-right"><NewAdvanceValue value={line.new_advance} /></td>
                         <td className="px-3 py-2.5 text-right">
                           {fmt(toNum(line.other_deduction))}
                         </td>
@@ -1528,6 +1585,8 @@ export function PayrollTab({
         {monthBatches.map((b) => {
           const net = b.lines.reduce((s, l) => s + toNum(l.net_salary), 0);
           const paid = b.lines.reduce((s, l) => s + toNum(l.paid), 0);
+          const newAdvanceTotal = b.lines.reduce((sum, line) => sum + toNum(line.new_advance), 0);
+          const newAdvanceCount = b.lines.filter((line) => toNum(line.new_advance) > 0).length;
           return (
             <div
               key={b.id}
@@ -1539,6 +1598,11 @@ export function PayrollTab({
                   Foreman {b.foreman || "—"} · {b.lines.length} employees · {monthLabel(b.month)} ·{" "}
                   {b.status}
                 </p>
+                {newAdvanceCount > 0 && (
+                  <p className="mt-1 inline-flex rounded-md bg-gold/15 px-2 py-1 text-[11px] font-extrabold text-warn">
+                    {newAdvanceCount} new advance{newAdvanceCount === 1 ? "" : "s"} · {fmt(newAdvanceTotal)} OMR
+                  </p>
+                )}
               </div>
               <div className="text-right">
                 <p className="text-[10px] font-bold uppercase text-slate-500">Net / Paid</p>
