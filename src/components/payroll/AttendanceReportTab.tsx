@@ -30,7 +30,7 @@ function AttendanceMatrix({
   days: string[];
   rows: AttendanceMatrixRow[];
   entryByEmployeeDay: Map<string, TimesheetRecord>;
-  site?: string;
+  site?: string | undefined;
 }) {
   return (
     <div className={card + " overflow-hidden"}>
@@ -125,10 +125,10 @@ function AttendanceCell({
 }: {
   date: string;
   entry: TimesheetRecord | undefined;
-  site?: string;
+  site?: string | undefined;
 }) {
   const worked = entry ? isWorked(entry) : false;
-  const isDifferentSite = Boolean(worked && site && entry.site !== site);
+  const isDifferentSite = Boolean(worked && site && entry && entry.site !== site);
   const label =
     entry?.status === "ABSENT"
       ? "A"
