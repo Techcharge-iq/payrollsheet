@@ -14,6 +14,7 @@ import {
 import type { Employee } from "@/lib/payroll";
 import { useTimesheetsForDate, type TimesheetRecord } from "@/lib/payroll-data";
 import { MonthlyAttendanceDialog } from "./MonthlyAttendanceDialog";
+import { TimeControl } from "./TimeControl";
 import { btnGold, btnOutline, card, input, select } from "./ui";
 
 interface Props {
@@ -143,6 +144,8 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [copyPickerOpen, setCopyPickerOpen] = useState(false);
   const [monthlyAttendanceOpen, setMonthlyAttendanceOpen] = useState(false);
+  const [bulkInTime, setBulkInTime] = useState("08:00");
+  const [bulkOutTime, setBulkOutTime] = useState("17:00");
   const pendingDateEdit = useRef<{
     batchKey: string | null;
     site: string;
@@ -341,6 +344,24 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
         next.overtime = "0";
       }
       return { ...current, [employeeId]: next };
+    });
+    setDirty(true);
+  };
+
+  const applySchedule = () => {
+    setAttendance((current) => {
+      const next = { ...current };
+      selectedEmployees.forEach((employee) => {
+        const row = next[employee.id] ?? defaultAttendance();
+        next[employee.id] = {
+          ...row,
+          status: "PRESENT",
+          inTime: bulkInTime,
+          outTime: bulkOutTime,
+          breakHours: row.breakHours || "1",
+        };
+      });
+      return next;
     });
     setDirty(true);
   };
@@ -723,31 +744,27 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
               </p>
             )}
 
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-slate-50 px-2.5 py-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setAttendance((current) => {
-                    const next = { ...current };
-                    selectedEmployees.forEach((employee) => {
-                      const row = next[employee.id] ?? defaultAttendance();
-                      next[employee.id] = {
-                        ...row,
-                        status: "PRESENT",
-                        inTime: "08:00",
-                        outTime: "17:00",
-                        breakHours: "1",
-                      };
-                    });
-                    return next;
-                  });
-                  setDirty(true);
-                }}
-                disabled={!selectedCount}
-                className={`${btnOutline} h-8 rounded-md px-2.5 py-1 text-xs`}
-              >
-                <Check size={13} /> Set all present 08:00–17:00
-              </button>
+            <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border border-border bg-slate-50 p-2.5">
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="text-[10px] font-bold uppercase text-slate-500">
+                  In time
+                  <TimeControl value={bulkInTime} onChange={setBulkInTime} label="Bulk in time" compact />
+                </label>
+                <label className="text-[10px] font-bold uppercase text-slate-500">
+                  Out time
+                  <TimeControl value={bulkOutTime} onChange={setBulkOutTime} label="Bulk out time" compact />
+                </label>
+                <div className="flex flex-wrap gap-1">
+                  {[["08:00", "17:00", "Day"], ["07:00", "16:00", "Early"], ["18:00", "03:00", "Night"]].map(([start, end, label]) => (
+                    <button key={label} type="button" onClick={() => { setBulkInTime(start); setBulkOutTime(end); }} className={`${btnOutline} h-8 px-2 py-1 text-[11px]`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <button type="button" onClick={applySchedule} disabled={!selectedCount} className={`${btnOutline} h-9 px-3 py-1 text-xs`}>
+                  <Check size={13} /> Apply to selected
+                </button>
+              </div>
               <div className="flex items-center gap-2">
                 {dirty && (
                   <button
@@ -770,19 +787,19 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
             </div>
 
             <div className="overflow-x-auto rounded-md border border-border bg-card">
-              <table className="w-full min-w-[1240px] table-fixed border-collapse text-xs">
+              <table className="w-full min-w-[1280px] table-fixed border-collapse text-xs">
                 <thead className="bg-slate-100">
                   <tr className="h-8 border-b border-border text-[10px] font-bold uppercase tracking-wide text-slate-500">
                     <th className="w-9 px-2 text-center" aria-label="Selected" />
                     <th className="w-32 px-2 text-left">Status</th>
                     <th className="w-36 px-2 text-left">Employee</th>
                     <th className="w-36 px-2 text-left">Role / Phone</th>
-                    <th className="w-28 px-2 text-left">In</th>
-                    <th className="w-28 px-2 text-left">Out</th>
+                    <th className="w-44 px-2 text-left">In</th>
+                    <th className="w-44 px-2 text-left">Out</th>
                     <th className="w-20 px-2 text-left">Break (hrs)</th>
                     <th className="w-24 px-2 text-left">Overtime (hrs)</th>
                     <th className="w-24 px-2 text-left">Regular hrs</th>
-                    <th className="px-2 text-left">Notes</th>
+                    <th className="w-24 px-2 text-left">Notes</th>
                     <th className="w-12 px-2 text-center">Actions</th>
                   </tr>
                 </thead>
@@ -854,28 +871,10 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
                             {employee.trade} / {employee.id_number || `ID ${employee.id}`}
                           </td>
                           <td className="px-2">
-                            <input
-                              type="time"
-                              value={row.inTime}
-                              disabled={!workedToday}
-                              onChange={(event) =>
-                                updateAttendance(employee.id, { inTime: event.target.value })
-                              }
-                              aria-label={`${employee.name} clock-in time`}
-                              className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
-                            />
+                            <TimeControl value={row.inTime} disabled={!workedToday} onChange={(value) => updateAttendance(employee.id, { inTime: value })} label={`${employee.name} clock-in time`} compact />
                           </td>
                           <td className="px-2">
-                            <input
-                              type="time"
-                              value={row.outTime}
-                              disabled={!workedToday}
-                              onChange={(event) =>
-                                updateAttendance(employee.id, { outTime: event.target.value })
-                              }
-                              aria-label={`${employee.name} clock-out time`}
-                              className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
-                            />
+                            <TimeControl value={row.outTime} disabled={!workedToday} onChange={(value) => updateAttendance(employee.id, { outTime: value })} label={`${employee.name} clock-out time`} compact />
                           </td>
                           <td className="px-2">
                             <input
@@ -916,7 +915,7 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
                               }
                               aria-label={`${employee.name} notes`}
                               placeholder="—"
-                              className={`${input} h-7 rounded px-1.5 py-0 text-xs`}
+                              className={`${input} h-7 w-24 rounded px-1.5 py-0 text-xs`}
                             />
                           </td>
                           <td className="px-2 text-center">

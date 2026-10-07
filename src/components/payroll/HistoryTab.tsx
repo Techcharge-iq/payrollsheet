@@ -15,6 +15,7 @@ import {
   type PayrollBatch,
 } from "@/lib/payroll";
 import { downloadSlips } from "@/lib/slip-pdf";
+import { NewAdvanceValue } from "./NewAdvanceValue";
 import { btnGold, btnOutline, card, select } from "./ui";
 
 interface Props {
@@ -165,9 +166,7 @@ export function HistoryTab({ employees, batches, advances }: Props) {
                         <td className="px-3 py-2.5 text-right text-warn">
                           {fmt(toNum(r.prev_advance))}
                         </td>
-                        <td className="px-3 py-2.5 text-right text-warn">
-                          {fmt(toNum(r.new_advance))}
-                        </td>
+                        <td className="px-3 py-2.5 text-right"><NewAdvanceValue value={r.new_advance} /></td>
                         <td className="px-3 py-2.5 text-right text-danger">
                           {fmt(toNum(r.other_deduction))}
                         </td>

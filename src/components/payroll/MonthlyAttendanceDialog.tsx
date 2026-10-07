@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { btnOutline, btnPrimary, input, select } from "./ui";
+import { TimeControl } from "./TimeControl";
 
 type AttendanceStatus = TimesheetRecord["status"];
 type AttendanceEntry = Omit<TimesheetRecord, "id" | "created_at" | "total_hours" | "regular_hours">;
@@ -260,7 +261,7 @@ export function MonthlyAttendanceDialog({
             </p>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full min-w-[1150px] text-left text-xs">
+              <table className="w-full min-w-[1250px] text-left text-xs">
                 <thead className="sticky top-0 z-10 bg-navy-soft text-[10px] uppercase tracking-wide text-slate-600">
                   <tr>
                     <th className="px-2 py-2">Day</th>
@@ -271,7 +272,7 @@ export function MonthlyAttendanceDialog({
                     <th className="px-2 py-2">Out</th>
                     <th className="px-2 py-2">Break</th>
                     <th className="px-2 py-2">Overtime</th>
-                    <th className="px-2 py-2">Remarks</th>
+                    <th className="w-24 px-2 py-2">Remarks</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -317,24 +318,10 @@ export function MonthlyAttendanceDialog({
                           />
                         </td>
                         <td className="px-2 py-1.5">
-                          <input
-                            type="time"
-                            value={row.inTime}
-                            disabled={!isWorked}
-                            onChange={(event) => updateDay(day, { inTime: event.target.value })}
-                            aria-label={`Day ${day} in time`}
-                            className={`${input} min-w-24 px-2 py-1 disabled:opacity-50`}
-                          />
+                          <TimeControl value={row.inTime} disabled={!isWorked} onChange={(value) => updateDay(day, { inTime: value })} label={`Day ${day} in time`} />
                         </td>
                         <td className="px-2 py-1.5">
-                          <input
-                            type="time"
-                            value={row.outTime}
-                            disabled={!isWorked}
-                            onChange={(event) => updateDay(day, { outTime: event.target.value })}
-                            aria-label={`Day ${day} out time`}
-                            className={`${input} min-w-24 px-2 py-1 disabled:opacity-50`}
-                          />
+                          <TimeControl value={row.outTime} disabled={!isWorked} onChange={(value) => updateDay(day, { outTime: value })} label={`Day ${day} out time`} />
                         </td>
                         <td className="px-2 py-1.5">
                           <input
@@ -365,7 +352,7 @@ export function MonthlyAttendanceDialog({
                             value={row.remarks}
                             onChange={(event) => updateDay(day, { remarks: event.target.value })}
                             aria-label={`Day ${day} remarks`}
-                            className={`${input} min-w-40 px-2 py-1`}
+                            className={`${input} w-24 px-2 py-1`}
                           />
                         </td>
                       </tr>

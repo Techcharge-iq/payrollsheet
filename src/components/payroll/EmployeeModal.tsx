@@ -15,6 +15,7 @@ import {
   type PayrollBatch,
 } from "@/lib/payroll";
 import { btnGold, btnOutline, btnPrimary, input, select } from "./ui";
+import { NewAdvanceValue } from "./NewAdvanceValue";
 
 export type ModalMode = "new" | "view" | "edit" | null;
 
@@ -233,7 +234,7 @@ export function EmployeeModal({
                             <td className="px-3 py-2 text-right text-warn">
                               {fmt(toNum(r.prev_advance))}
                             </td>
-                            <td className="px-3 py-2 text-right">{fmt(toNum(r.new_advance))}</td>
+                            <td className="px-3 py-2 text-right"><NewAdvanceValue value={r.new_advance} /></td>
                             <td className="px-3 py-2 text-right text-danger">
                               {fmt(toNum(r.other_deduction))}
                             </td>
