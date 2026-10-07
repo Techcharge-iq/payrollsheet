@@ -135,7 +135,9 @@ function AttendanceCell({
       : worked
         ? isDifferentSite
           ? "T"
-          : compactHours(netHours(entry))
+          : entry
+            ? compactHours(netHours(entry))
+            : ""
         : entry?.status === "LEAVE"
           ? "L"
           : entry?.status === "HOLIDAY"

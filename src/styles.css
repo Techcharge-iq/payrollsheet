@@ -165,6 +165,76 @@
     color: var(--color-foreground);
   }
 
+  .dashboard-hero {
+    background:
+      radial-gradient(circle at 88% 18%, oklch(0.66 0.12 190 / 0.45), transparent 30%),
+      linear-gradient(120deg, oklch(0.2 0.026 233), oklch(0.29 0.06 230));
+    box-shadow: 0 16px 40px oklch(0.2 0.03 233 / 0.18);
+  }
+
+  .dashboard-stat {
+    min-width: 0;
+    padding: 16px;
+    transition:
+      transform 180ms ease,
+      box-shadow 180ms ease;
+  }
+
+  .dashboard-stat:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 25px oklch(0.29 0.025 245 / 0.09);
+  }
+
+  .dashboard-stat-icon {
+    display: flex;
+    height: 36px;
+    width: 36px;
+    flex: 0 0 36px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: var(--navy-soft);
+    color: var(--navy);
+  }
+
+  .dashboard-stat[data-tone="green"] .dashboard-stat-icon {
+    background: color-mix(in oklch, var(--money) 12%, white);
+    color: var(--money);
+  }
+
+  .dashboard-stat[data-tone="teal"] .dashboard-stat-icon {
+    background: color-mix(in oklch, var(--gold) 14%, white);
+    color: var(--gold-dark);
+  }
+
+  .dashboard-stat[data-tone="gold"] .dashboard-stat-icon {
+    background: color-mix(in oklch, var(--warn) 14%, white);
+    color: var(--warn);
+  }
+
+  .attendance-scroll-reveal {
+    opacity: 0;
+    transform: translateY(14px) scale(0.99);
+    transition:
+      opacity 420ms ease-out,
+      transform 520ms cubic-bezier(0.2, 0.75, 0.25, 1),
+      box-shadow 220ms ease-out;
+  }
+
+  .attendance-scroll-reveal.is-visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  .attendance-scroll-reveal.is-visible:hover {
+    box-shadow: 0 12px 28px oklch(0.29 0.025 245 / 0.1);
+  }
+
+  .attendance-notes-input {
+    min-height: 22px;
+    height: 22px;
+  }
+
   .workstation-shell {
     background:
       radial-gradient(circle at top left, oklch(0.9 0.03 235 / 0.85), transparent 30%),
@@ -174,7 +244,8 @@
   }
 
   .workstation-content {
-    max-width: 1600px;
+    width: 100%;
+    max-width: 2200px;
     margin: 0 auto;
   }
 
@@ -506,6 +577,22 @@
     font-size: 12px;
   }
 
+  .dashboard-stat {
+    padding: 12px;
+  }
+
+  .dashboard-stat-icon {
+    height: 32px;
+    width: 32px;
+    flex-basis: 32px;
+    border-radius: 10px;
+  }
+
+  .mobile-app-shell .attendance-notes-input {
+    min-height: 40px;
+    height: 40px;
+  }
+
   .mobile-screen-enter {
     animation: mobile-screen-in 220ms ease-out both;
   }
@@ -688,8 +775,13 @@
 @media (prefers-reduced-motion: reduce) {
   .mobile-screen-enter,
   .mobile-sheet,
-  .mobile-list-skeleton {
+  .mobile-list-skeleton,
+  .attendance-scroll-reveal,
+  .attendance-scroll-reveal.is-visible {
     animation: none;
+    opacity: 1;
+    transform: none;
+    transition: none;
   }
 
   .floating-menu {

@@ -35,8 +35,24 @@ interface AttendanceDraft {
   outTime: string;
   breakHours: string;
   overtime: string;
+  manualHours: string;
   notes: string;
 }
+
+type AttendanceColumn = "inTime" | "outTime" | "breakHours" | "overtime";
+
+const ATTENDANCE_COLUMNS: Array<{ value: AttendanceColumn; label: string }> = [
+  { value: "inTime", label: "In time" },
+  { value: "outTime", label: "Out time" },
+  { value: "breakHours", label: "Break" },
+  { value: "overtime", label: "Overtime" },
+];
+
+const SHIFT_PRESETS = [
+  { start: "08:00", end: "17:00", label: "Day" },
+  { start: "07:00", end: "16:00", label: "Early" },
+  { start: "12:00", end: "21:00", label: "Late" },
+];
 
 interface AttendanceBatch {
   key: string;
@@ -77,6 +93,7 @@ function defaultAttendance(): AttendanceDraft {
     outTime: "17:00",
     breakHours: "1",
     overtime: "0",
+    manualHours: "8",
     notes: "",
   };
 }
@@ -88,6 +105,7 @@ function attendanceFromRecord(entry: TimesheetRecord): AttendanceDraft {
     outTime: entry.out_time?.slice(0, 5) ?? "",
     breakHours: String(entry.break_hours ?? 0),
     overtime: String(entry.overtime_hours ?? 0),
+    manualHours: String(entry.total_hours ?? 0),
     notes: entry.remarks ?? "",
   };
 }
@@ -146,6 +164,13 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   const [monthlyAttendanceOpen, setMonthlyAttendanceOpen] = useState(false);
   const [bulkInTime, setBulkInTime] = useState("08:00");
   const [bulkOutTime, setBulkOutTime] = useState("17:00");
+  const [visibleColumns, setVisibleColumns] = useState<Record<AttendanceColumn, boolean>>({
+    inTime: true,
+    outTime: true,
+    breakHours: true,
+    overtime: true,
+  });
+  const sectionRef = useRef<HTMLElement | null>(null);
   const pendingDateEdit = useRef<{
     batchKey: string | null;
     site: string;
@@ -207,6 +232,11 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
     [editingKey, selectedEmployees, timesheets],
   );
   const selectedCount = selectedIds.length;
+  const scheduledHours = (row: AttendanceDraft) =>
+    hoursFor({
+      ...row,
+      breakHours: visibleColumns.breakHours ? row.breakHours : "0",
+    });
 
   useEffect(() => {
     const pending = pendingDateEdit.current;
@@ -242,6 +272,29 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    const root = sectionRef.current;
+    if (!root) return;
+    const cards = root.querySelectorAll(".attendance-scroll-reveal");
+    if (!("IntersectionObserver" in window)) {
+      cards.forEach((element) => element.classList.add("is-visible"));
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.08, rootMargin: "0px 0px -24px 0px" },
+    );
+    cards.forEach((element) => observer.observe(element));
+    return () => observer.disconnect();
+  }, [timesheetsQuery.isLoading]);
 
   useEffect(() => {
     if (!dirty) return;
@@ -334,6 +387,23 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
     setDirty(true);
   };
 
+  const selectAllAvailable = () => {
+    const available = filteredPickerEmployees.filter(
+      (employee) => !selectedIds.includes(employee.id),
+    );
+    if (!available.length) return;
+    setSelectedIds((current) => [...current, ...available.map((employee) => employee.id)]);
+    setAttendance((current) => {
+      const next = { ...current };
+      available.forEach((employee) => {
+        const existing = timesheets.find((entry) => entry.employee_id === employee.id);
+        next[employee.id] = existing ? attendanceFromRecord(existing) : defaultAttendance();
+      });
+      return next;
+    });
+    setDirty(true);
+  };
+
   const updateAttendance = (employeeId: number, patch: Partial<AttendanceDraft>) => {
     setAttendance((current) => {
       const next = { ...(current[employeeId] ?? defaultAttendance()), ...patch };
@@ -342,9 +412,45 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
         next.outTime = "";
         next.breakHours = "0";
         next.overtime = "0";
+      } else if (patch.status && worked(patch.status)) {
+        next.inTime ||= "08:00";
+        next.outTime ||= "17:00";
+        next.breakHours ||= "1";
+        if (Number(next.manualHours) <= 0) {
+          next.manualHours = String(hoursFor(next).toFixed(2));
+        }
+      }
+      if (
+        worked(next.status) &&
+        (patch.inTime !== undefined ||
+          patch.outTime !== undefined ||
+          patch.breakHours !== undefined)
+      ) {
+        next.manualHours = String(hoursFor(next).toFixed(2));
       }
       return { ...current, [employeeId]: next };
     });
+    setDirty(true);
+  };
+
+  const toggleColumn = (column: AttendanceColumn) => {
+    const next = { ...visibleColumns, [column]: !visibleColumns[column] };
+    const wasManual = !visibleColumns.inTime || !visibleColumns.outTime;
+    const becomesManual = !next.inTime || !next.outTime;
+    if (!wasManual && becomesManual) {
+      setAttendance((rows) => {
+        const updated = { ...rows };
+        selectedEmployees.forEach((employee) => {
+          const row = updated[employee.id] ?? defaultAttendance();
+          updated[employee.id] = {
+            ...row,
+            manualHours: String(scheduledHours(row).toFixed(2)),
+          };
+        });
+        return updated;
+      });
+    }
+    setVisibleColumns(next);
     setDirty(true);
   };
 
@@ -353,12 +459,16 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
       const next = { ...current };
       selectedEmployees.forEach((employee) => {
         const row = next[employee.id] ?? defaultAttendance();
-        next[employee.id] = {
+        const scheduled: AttendanceDraft = {
           ...row,
           status: "PRESENT",
           inTime: bulkInTime,
           outTime: bulkOutTime,
           breakHours: row.breakHours || "1",
+        };
+        next[employee.id] = {
+          ...scheduled,
+          manualHours: String(scheduledHours(scheduled).toFixed(2)),
         };
       });
       return next;
@@ -403,31 +513,56 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
       return;
     }
 
+    const manualHoursEntry = !visibleColumns.inTime || !visibleColumns.outTime;
     const invalid = selectedEmployees.filter((employee) => {
       const row = attendance[employee.id] ?? defaultAttendance();
       if (!worked(row.status)) return false;
+      const breakHours = visibleColumns.breakHours ? Number(row.breakHours) : 0;
+      const overtime = visibleColumns.overtime ? Number(row.overtime) : 0;
+      if (manualHoursEntry) {
+        const manualHours = Number(row.manualHours);
+        const duration = (manualHours + breakHours) * 60;
+        const [startHour, startMinute] = row.inTime.split(":").map(Number);
+        const [endHour, endMinute] = row.outTime.split(":").map(Number);
+        const startMinutes = startHour! * 60 + startMinute!;
+        const endMinutes = endHour! * 60 + endMinute!;
+        return (
+          !Number.isFinite(manualHours) ||
+          manualHours <= 0 ||
+          !Number.isFinite(duration) ||
+          duration >= 24 * 60 ||
+          !Number.isFinite(breakHours) ||
+          breakHours < 0 ||
+          !Number.isFinite(overtime) ||
+          overtime < 0 ||
+          overtime > manualHours ||
+          (visibleColumns.inTime && startMinutes + duration >= 24 * 60) ||
+          (!visibleColumns.inTime && visibleColumns.outTime && endMinutes - duration < 0) ||
+          (!visibleColumns.inTime && !visibleColumns.outTime && 8 * 60 + duration >= 24 * 60)
+        );
+      }
       const start = row.inTime.split(":").map(Number);
       const end = row.outTime.split(":").map(Number);
       const startMinutes = start[0]! * 60 + start[1]!;
       const endMinutes = end[0]! * 60 + end[1]!;
-      const breakHours = Number(row.breakHours);
-      const overtime = Number(row.overtime);
+      const visibleBreakHours = visibleColumns.breakHours ? Number(row.breakHours) : 0;
+      const visibleOvertime = visibleColumns.overtime ? Number(row.overtime) : 0;
       const shiftHours = (endMinutes - startMinutes) / 60;
       return (
         !row.inTime ||
         !row.outTime ||
         endMinutes <= startMinutes ||
-        !Number.isFinite(breakHours) ||
-        breakHours < 0 ||
-        breakHours > shiftHours ||
-        !Number.isFinite(overtime) ||
-        overtime < 0 ||
-        overtime > hoursFor(row)
+        !Number.isFinite(visibleBreakHours) ||
+        visibleBreakHours < 0 ||
+        visibleBreakHours > shiftHours ||
+        !Number.isFinite(visibleOvertime) ||
+        visibleOvertime < 0 ||
+        visibleOvertime > shiftHours - visibleBreakHours
       );
     });
     if (invalid.length) {
       notify(
-        `Check the time, break, and overtime values for ${invalid.map((employee) => employee.name).join(", ")}.`,
+        `Check the total-hours or time, break, and overtime values for ${invalid.map((employee) => employee.name).join(", ")}.`,
         "warn",
       );
       return;
@@ -436,16 +571,36 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
     const payload = selectedEmployees.map((employee) => {
       const row = attendance[employee.id] ?? defaultAttendance();
       const doesWork = worked(row.status);
+      const breakHours = visibleColumns.breakHours ? Number(row.breakHours) || 0 : 0;
+      const overtime = visibleColumns.overtime ? Number(row.overtime) || 0 : 0;
+      let inTime = row.inTime;
+      let outTime = row.outTime;
+      if (doesWork && manualHoursEntry) {
+        const duration = Math.round((Number(row.manualHours) + breakHours) * 60);
+        if (visibleColumns.inTime) {
+          const [hours, minutes] = row.inTime.split(":").map(Number);
+          const endMinutes = hours! * 60 + minutes! + duration;
+          outTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
+        } else if (visibleColumns.outTime) {
+          const [hours, minutes] = row.outTime.split(":").map(Number);
+          const startMinutes = hours! * 60 + minutes! - duration;
+          inTime = `${String(Math.floor(startMinutes / 60)).padStart(2, "0")}:${String(startMinutes % 60).padStart(2, "0")}`;
+        } else {
+          inTime = "08:00";
+          const endMinutes = 8 * 60 + duration;
+          outTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
+        }
+      }
       return {
         employee_id: employee.id,
         site: cleanSite,
         foreman: cleanForeman,
         work_date: workDate,
         status: row.status,
-        in_time: doesWork ? row.inTime : null,
-        out_time: doesWork ? row.outTime : null,
-        break_hours: doesWork ? Number(row.breakHours) || 0 : 0,
-        overtime_hours: doesWork ? Number(row.overtime) || 0 : 0,
+        in_time: doesWork ? inTime : null,
+        out_time: doesWork ? outTime : null,
+        break_hours: doesWork ? breakHours : 0,
+        overtime_hours: doesWork ? overtime : 0,
         remarks: row.notes.trim() || null,
       } satisfies Omit<TimesheetRecord, "id" | "created_at" | "total_hours" | "regular_hours">;
     });
@@ -485,8 +640,8 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   };
 
   return (
-    <section className="space-y-2.5">
-      <div className={`${card} attendance-batch-toolbar`}>
+    <section ref={sectionRef} className="space-y-2.5">
+      <div className={`${card} attendance-batch-toolbar attendance-scroll-reveal`}>
         <label className="attendance-batch-field">
           Attendance date
           <input
@@ -567,7 +722,7 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
         </div>
       ) : (
         <>
-          <div className="space-y-2">
+          <div className="space-y-2 attendance-scroll-reveal">
             {editingKey && (
               <p className="px-1 text-xs font-semibold text-navy">Editing saved attendance batch</p>
             )}
@@ -716,7 +871,17 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
                       </p>
                     )}
                   </div>
-                  <div className="mt-2 flex justify-end border-t border-border pt-2">
+                  <div className="mt-2 flex justify-between gap-2 border-t border-border pt-2">
+                    <button
+                      type="button"
+                      onClick={selectAllAvailable}
+                      disabled={filteredPickerEmployees.every((employee) =>
+                        selectedIds.includes(employee.id),
+                      )}
+                      className={btnOutline}
+                    >
+                      Select all available
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -744,24 +909,47 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
               </p>
             )}
 
-            <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border border-border bg-slate-50 p-2.5">
+            <div className="attendance-scroll-reveal flex flex-wrap items-end justify-between gap-3 rounded-lg border border-border bg-slate-50 p-2.5">
               <div className="flex flex-wrap items-end gap-2">
                 <label className="text-[10px] font-bold uppercase text-slate-500">
                   In time
-                  <TimeControl value={bulkInTime} onChange={setBulkInTime} label="Bulk in time" compact />
+                  <TimeControl
+                    value={bulkInTime}
+                    onChange={setBulkInTime}
+                    label="Bulk in time"
+                    compact
+                  />
                 </label>
                 <label className="text-[10px] font-bold uppercase text-slate-500">
                   Out time
-                  <TimeControl value={bulkOutTime} onChange={setBulkOutTime} label="Bulk out time" compact />
+                  <TimeControl
+                    value={bulkOutTime}
+                    onChange={setBulkOutTime}
+                    label="Bulk out time"
+                    compact
+                  />
                 </label>
                 <div className="flex flex-wrap gap-1">
-                  {[["08:00", "17:00", "Day"], ["07:00", "16:00", "Early"], ["18:00", "03:00", "Night"]].map(([start, end, label]) => (
-                    <button key={label} type="button" onClick={() => { setBulkInTime(start); setBulkOutTime(end); }} className={`${btnOutline} h-8 px-2 py-1 text-[11px]`}>
+                  {SHIFT_PRESETS.map(({ start, end, label }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => {
+                        setBulkInTime(start);
+                        setBulkOutTime(end);
+                      }}
+                      className={`${btnOutline} h-8 px-2 py-1 text-[11px]`}
+                    >
                       {label}
                     </button>
                   ))}
                 </div>
-                <button type="button" onClick={applySchedule} disabled={!selectedCount} className={`${btnOutline} h-9 px-3 py-1 text-xs`}>
+                <button
+                  type="button"
+                  onClick={applySchedule}
+                  disabled={!selectedCount}
+                  className={`${btnOutline} h-9 px-3 py-1 text-xs`}
+                >
                   <Check size={13} /> Apply to selected
                 </button>
               </div>
@@ -786,20 +974,53 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
               </div>
             </div>
 
-            <div className="overflow-x-auto rounded-md border border-border bg-card">
-              <table className="w-full min-w-[1280px] table-fixed border-collapse text-xs">
+            <div className="attendance-scroll-reveal space-y-2 overflow-x-auto rounded-md border border-border bg-card p-2">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border pb-2">
+                <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                  Attendance columns
+                </span>
+                {ATTENDANCE_COLUMNS.map(({ value, label }) => (
+                  <label
+                    key={value}
+                    className="inline-flex min-h-8 items-center gap-1.5 text-xs font-medium text-slate-600"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns[value]}
+                      onChange={() => toggleColumn(value)}
+                      className="h-4 w-4 accent-[var(--navy)]"
+                    />
+                    {label}
+                  </label>
+                ))}
+                {(!visibleColumns.inTime || !visibleColumns.outTime) && (
+                  <span className="text-[11px] font-semibold text-money">
+                    Enter total hours directly; hidden shift times are calculated on save.
+                  </span>
+                )}
+              </div>
+              <table
+                className="w-full table-fixed border-collapse text-xs"
+                style={{
+                  minWidth: `${720 + Number(visibleColumns.inTime) * 208 + Number(visibleColumns.outTime) * 208 + Number(visibleColumns.breakHours) * 80 + Number(visibleColumns.overtime) * 96}px`,
+                }}
+              >
                 <thead className="bg-slate-100">
                   <tr className="h-8 border-b border-border text-[10px] font-bold uppercase tracking-wide text-slate-500">
                     <th className="w-9 px-2 text-center" aria-label="Selected" />
                     <th className="w-32 px-2 text-left">Status</th>
                     <th className="w-36 px-2 text-left">Employee</th>
                     <th className="w-36 px-2 text-left">Role / Phone</th>
-                    <th className="w-44 px-2 text-left">In</th>
-                    <th className="w-44 px-2 text-left">Out</th>
-                    <th className="w-20 px-2 text-left">Break (hrs)</th>
-                    <th className="w-24 px-2 text-left">Overtime (hrs)</th>
-                    <th className="w-24 px-2 text-left">Regular hrs</th>
-                    <th className="w-24 px-2 text-left">Notes</th>
+                    {visibleColumns.inTime && <th className="w-52 px-2 text-left">In</th>}
+                    {visibleColumns.outTime && <th className="w-52 px-2 text-left">Out</th>}
+                    {visibleColumns.breakHours && (
+                      <th className="w-20 px-2 text-left">Break (hrs)</th>
+                    )}
+                    {visibleColumns.overtime && (
+                      <th className="w-24 px-2 text-left">Overtime (hrs)</th>
+                    )}
+                    <th className="w-28 px-2 text-left">Total hrs</th>
+                    <th className="w-16 px-2 text-left">Notes</th>
                     <th className="w-12 px-2 text-center">Actions</th>
                   </tr>
                 </thead>
@@ -807,7 +1028,13 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
                   {selectedEmployees.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={11}
+                        colSpan={
+                          7 +
+                          Number(visibleColumns.inTime) +
+                          Number(visibleColumns.outTime) +
+                          Number(visibleColumns.breakHours) +
+                          Number(visibleColumns.overtime)
+                        }
                         className="h-14 px-3 text-center text-xs text-muted-foreground"
                       >
                         Select employees above to add them to this attendance batch.
@@ -870,42 +1097,84 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
                           >
                             {employee.trade} / {employee.id_number || `ID ${employee.id}`}
                           </td>
+                          {visibleColumns.inTime && (
+                            <td className="px-2">
+                              <TimeControl
+                                value={row.inTime}
+                                disabled={!workedToday}
+                                onChange={(value) =>
+                                  updateAttendance(employee.id, { inTime: value })
+                                }
+                                label={`${employee.name} clock-in time`}
+                                compact
+                              />
+                            </td>
+                          )}
+                          {visibleColumns.outTime && (
+                            <td className="px-2">
+                              <TimeControl
+                                value={row.outTime}
+                                disabled={!workedToday}
+                                onChange={(value) =>
+                                  updateAttendance(employee.id, { outTime: value })
+                                }
+                                label={`${employee.name} clock-out time`}
+                                compact
+                              />
+                            </td>
+                          )}
+                          {visibleColumns.breakHours && (
+                            <td className="px-2">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.25"
+                                value={row.breakHours}
+                                disabled={!workedToday}
+                                onChange={(event) =>
+                                  updateAttendance(employee.id, { breakHours: event.target.value })
+                                }
+                                aria-label={`${employee.name} break hours`}
+                                className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
+                              />
+                            </td>
+                          )}
+                          {visibleColumns.overtime && (
+                            <td className="px-2">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.25"
+                                value={row.overtime}
+                                disabled={!workedToday}
+                                onChange={(event) =>
+                                  updateAttendance(employee.id, { overtime: event.target.value })
+                                }
+                                aria-label={`${employee.name} overtime hours`}
+                                className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
+                              />
+                            </td>
+                          )}
                           <td className="px-2">
-                            <TimeControl value={row.inTime} disabled={!workedToday} onChange={(value) => updateAttendance(employee.id, { inTime: value })} label={`${employee.name} clock-in time`} compact />
-                          </td>
-                          <td className="px-2">
-                            <TimeControl value={row.outTime} disabled={!workedToday} onChange={(value) => updateAttendance(employee.id, { outTime: value })} label={`${employee.name} clock-out time`} compact />
-                          </td>
-                          <td className="px-2">
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.25"
-                              value={row.breakHours}
-                              disabled={!workedToday}
-                              onChange={(event) =>
-                                updateAttendance(employee.id, { breakHours: event.target.value })
-                              }
-                              aria-label={`${employee.name} break hours`}
-                              className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
-                            />
-                          </td>
-                          <td className="px-2">
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.25"
-                              value={row.overtime}
-                              disabled={!workedToday}
-                              onChange={(event) =>
-                                updateAttendance(employee.id, { overtime: event.target.value })
-                              }
-                              aria-label={`${employee.name} overtime hours`}
-                              className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
-                            />
-                          </td>
-                          <td className="px-2 text-xs font-semibold tabular-nums text-navy">
-                            {Math.max(0, hoursFor(row) - (Number(row.overtime) || 0)).toFixed(2)}
+                            {!visibleColumns.inTime || !visibleColumns.outTime ? (
+                              <input
+                                type="number"
+                                min="0.25"
+                                max="24"
+                                step="0.25"
+                                value={row.manualHours}
+                                disabled={!workedToday}
+                                onChange={(event) =>
+                                  updateAttendance(employee.id, { manualHours: event.target.value })
+                                }
+                                aria-label={`${employee.name} total hours`}
+                                className={`${input} h-9 rounded px-2 py-1 text-sm font-bold tabular-nums disabled:opacity-50`}
+                              />
+                            ) : (
+                              <span className="text-xs font-semibold tabular-nums text-navy">
+                                {scheduledHours(row).toFixed(2)}
+                              </span>
+                            )}
                           </td>
                           <td className="px-2">
                             <input
@@ -915,7 +1184,7 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
                               }
                               aria-label={`${employee.name} notes`}
                               placeholder="—"
-                              className={`${input} h-7 w-24 rounded px-1.5 py-0 text-xs`}
+                              className={`${input} attendance-notes-input h-7 w-12 rounded px-1 py-0 text-xs`}
                             />
                           </td>
                           <td className="px-2 text-center">
