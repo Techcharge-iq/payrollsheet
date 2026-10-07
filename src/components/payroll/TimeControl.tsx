@@ -3,7 +3,14 @@ import { input } from "./ui";
 
 function shiftTime(value: string, minutes: number) {
   const [hours, mins] = value.split(":").map(Number);
-  if (!Number.isFinite(hours) || !Number.isFinite(mins)) return value;
+  if (
+    hours === undefined ||
+    mins === undefined ||
+    !Number.isFinite(hours) ||
+    !Number.isFinite(mins)
+  ) {
+    return value;
+  }
   const total = (hours * 60 + mins + minutes + 24 * 60) % (24 * 60);
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }

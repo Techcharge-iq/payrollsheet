@@ -277,6 +277,26 @@ test.describe("responsive application navigation and dialogs", () => {
   }
 });
 
+test("overview uses the available desktop width and offers immediate actions", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await mockPayrollBackend(page, "admin");
+  await page.goto("/");
+  await expect(page.getByText("Syncing payroll data…")).toBeHidden({ timeout: 20_000 });
+
+  await expect(page.getByRole("heading", { name: "Immediate actions" })).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByText("Active employees", { exact: true })).toBeVisible();
+  await expect(page.getByText("Attendance today", { exact: true })).toBeVisible();
+  const contentWidth = await page
+    .locator(".workstation-content")
+    .evaluate((element) => element.getBoundingClientRect().width);
+  expect(contentWidth).toBeGreaterThan(1600);
+
+  await page.getByRole("button", { name: "Record today’s attendance" }).click();
+  await expect(page.getByLabel("Attendance date")).toBeVisible();
+});
+
 test("admin can create, submit, and approve a payroll batch", async ({ page }) => {
   const backend = await mockPayrollBackend(page, "admin");
   await page.setViewportSize({ width: 1440, height: 960 });
@@ -552,6 +572,7 @@ test("Supabase Realtime updates Dexie without another table fetch", async ({ pag
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.goto("/");
   await expect(page.getByRole("navigation", { name: "Application menu" })).toBeVisible();
+  await openTab(page, "Employees", false);
   await expect(page.getByRole("cell", { name: "Asha Khan" })).toBeVisible();
 
   const updatedEmployee = { ...backend.state.employees[0], name: "Asha Realtime" };

@@ -48,6 +48,12 @@ const ATTENDANCE_COLUMNS: Array<{ value: AttendanceColumn; label: string }> = [
   { value: "overtime", label: "Overtime" },
 ];
 
+const SHIFT_PRESETS = [
+  { start: "08:00", end: "17:00", label: "Day" },
+  { start: "07:00", end: "16:00", label: "Early" },
+  { start: "12:00", end: "21:00", label: "Late" },
+];
+
 interface AttendanceBatch {
   key: string;
   site: string;
@@ -924,11 +930,7 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
                   />
                 </label>
                 <div className="flex flex-wrap gap-1">
-                  {[
-                    ["08:00", "17:00", "Day"],
-                    ["07:00", "16:00", "Early"],
-                    ["12:00", "21:00", "Late"],
-                  ].map(([start, end, label]) => (
+                  {SHIFT_PRESETS.map(({ start, end, label }) => (
                     <button
                       key={label}
                       type="button"

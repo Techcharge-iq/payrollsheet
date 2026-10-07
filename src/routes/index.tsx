@@ -14,6 +14,7 @@ import {
   CalendarDays,
   Clock3,
   KeyRound,
+  LayoutDashboard,
   LogOut,
   Plus,
   Search,
@@ -51,6 +52,11 @@ const AuditHistoryTab = lazy(() =>
 const TimesheetsTab = lazy(() =>
   import("@/components/payroll/TimesheetsTab").then((module) => ({
     default: module.TimesheetsTab,
+  })),
+);
+const DashboardTab = lazy(() =>
+  import("@/components/payroll/DashboardTab").then((module) => ({
+    default: module.DashboardTab,
   })),
 );
 const AttendanceReportTab = lazy(() =>
@@ -113,6 +119,7 @@ export const Route = createFileRoute("/")({
 });
 
 const TABS = [
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "employees", label: "Employees", icon: Users },
   { id: "payroll", label: "Monthly Payroll", icon: Save },
   { id: "timesheets", label: "Daily Timesheets", icon: Clock3 },
@@ -247,7 +254,7 @@ function Dashboard({
   userId: string;
 }) {
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<TabId>("employees");
+  const [tab, setTab] = useState<TabId>("overview");
   const [mode, setMode] = useState<ModalMode>(null);
   const [form, setForm] = useState<EmployeeForm>(emptyForm);
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "warn" } | null>(null);
@@ -262,7 +269,8 @@ function Dashboard({
 
   const cacheReady = cacheState === "ready";
   const employeesQuery = useEmployees(cacheReady);
-  const needsPayrollHistory = ["history", "slips", "advances"].includes(tab) || mode !== null;
+  const needsPayrollHistory =
+    ["overview", "history", "slips", "advances"].includes(tab) || mode !== null;
   const batchesQuery = useBatches(undefined, cacheReady && needsPayrollHistory);
   const saveEmployee = useSaveEmployee();
   const canDelete = role === "admin";
@@ -627,6 +635,22 @@ function Dashboard({
           }
         >
           <main key={tab} className="mobile-screen-enter">
+            {tab === "overview" && (
+              <DashboardTab
+                employees={employees}
+                batches={batches}
+                advances={advances}
+                email={email}
+                onRecordAttendance={() => navigateToTab("timesheets")}
+                onCreatePayroll={() => navigateToTab("payroll")}
+                onNewEmployee={() => {
+                  setForm(emptyForm);
+                  setMode("new");
+                  navigateToTab("employees");
+                }}
+                onAddAdvance={() => navigateToTab("advances")}
+              />
+            )}
             {tab === "timesheets" && (
               <TimesheetsTab
                 employees={employees}
