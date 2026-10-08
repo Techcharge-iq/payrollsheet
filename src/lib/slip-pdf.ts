@@ -216,7 +216,7 @@ function drawSlip(doc: jsPDF, slip: SlipInput, headerImage: HeaderImage) {
 
   const tableY = 61;
   const rowHeight = 10;
-  const columns = [left, 66, 113, 158, left + contentWidth];
+  const columns = [left, 53, 105, 143, left + contentWidth];
   const staffRows: Array<[string, string, string, string]> = [
     ["NAME EMPLOYEE:", e.name, "TRADE:", e.trade],
     ["EMP ID NO:", e.id_number || "—", "SALARY MONTH:", monthLabel(month)],
@@ -230,22 +230,20 @@ function drawSlip(doc: jsPDF, slip: SlipInput, headerImage: HeaderImage) {
     doc.line(columns[1]!, y, columns[1]!, y + rowHeight);
     doc.line(columns[2]!, y, columns[2]!, y + rowHeight);
     doc.line(columns[3]!, y, columns[3]!, y + rowHeight);
-    drawLabelValue(
-      doc,
-      values[0],
-      values[1],
-      columns[0]! + 3,
-      y + 6.5,
-      columns[1]! - columns[0]! - 6,
-    );
-    drawLabelValue(
-      doc,
-      values[2],
-      values[3],
-      columns[2]! + 3,
-      y + 6.5,
-      columns[3]! - columns[2]! - 6,
-    );
+    const cells: Array<[number, string, boolean]> = [
+      [0, values[0], true],
+      [1, values[1], false],
+      [2, values[2], true],
+      [3, values[3], false],
+    ];
+    cells.forEach(([col, text, isLabel]) => {
+      const x0 = columns[col]! + 3;
+      const w = columns[col + 1]! - columns[col]! - 6;
+      doc.setFont("helvetica", isLabel ? "bold" : "normal");
+      fitFontSize(doc, text || "—", w, isLabel ? 8.5 : 9, 6.25);
+      doc.setTextColor(...INK);
+      doc.text(text || "—", x0, y + 6.3);
+    });
   });
 
   const cardY = 99;
