@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { db as supabase, dbAny } from "@/integrations/supabase/external-client";
-import type { Tables, TablesInsert } from "@/integrations/supabase/types";
+import type { Tables, TablesInsert } from "@/integrations/supabase/external-types";
 import type { AdvanceTx, Employee, PayrollBatch, PayrollBatchStatus, PayrollLine } from "./payroll";
 import { calculatePayroll, PAYROLL_CALCULATION_VERSION, PAYROLL_POLICY, toNum } from "./payroll";
 import { deleteCachedRows, readCachedRows, writeCachedRows } from "./payroll-cache";
