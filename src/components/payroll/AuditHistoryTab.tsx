@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, ChevronLeft, ChevronRight, Clock3, Filter } from "lucide-react";
-import type { Json } from "@/integrations/supabase/types";
+import type { Json } from "@/integrations/supabase/external-types";
 import { db } from "@/integrations/supabase/external-client";
 import { btnOutline, card, select } from "./ui";
 

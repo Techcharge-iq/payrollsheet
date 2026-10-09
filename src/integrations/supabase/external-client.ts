@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import type { Database } from "./types";
+import type { Database } from "./external-types";
 
 // External Supabase project used by the payroll app.
 // The publishable (anon) key is safe to ship in client code; access is guarded by RLS.
