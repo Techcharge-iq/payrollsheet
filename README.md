@@ -24,7 +24,7 @@ Important: modify the existing application only, preserve the current layout/the
 
 This project was built with [Lovable](https://lovable.dev).
 
-**Live app**: https://payrollsheet.lovable.app
+**Live app**: <https://payrollsheet.lovable.app>
 
 ## Build with Lovable
 
