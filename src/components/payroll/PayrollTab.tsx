@@ -512,7 +512,7 @@ export function PayrollTab({
         .select("overtime_multiplier")
         .eq("singleton", true)
         .maybeSingle();
-      if (error && error.code !== "PGRST116") throw error;
+      if (error && !isMissingPayrollSettingsError(error)) throw error;
       return (data as { overtime_multiplier: number | null } | null) ?? {
         overtime_multiplier: null,
       };

@@ -71,6 +71,14 @@ export function WorkforceTab({
   notify: (message: string, tone?: "ok" | "warn") => void;
 }) {
   const qc = useQueryClient();
+  const isMissingPayrollSettingsError = (
+    error: { code?: string; message?: string; status?: number } | null,
+  ) =>
+    !error ||
+    error.code === "PGRST116" ||
+    error.code === "42P01" ||
+    error.status === 404 ||
+    /payroll_settings|does not exist|not found/i.test(error.message ?? "");
   const [employeeId, setEmployeeId] = useState("");
   const [rate, setRate] = useState("");
   const [rateDate, setRateDate] = useState(today);
@@ -108,7 +116,7 @@ export function WorkforceTab({
         .select("overtime_multiplier")
         .eq("singleton", true)
         .maybeSingle();
-      if (error && error.code !== "PGRST116") throw error;
+      if (error && !isMissingPayrollSettingsError(error)) throw error;
       return (data as { overtime_multiplier: number | null } | null) ?? {
         overtime_multiplier: null,
       };
@@ -196,18 +204,21 @@ export function WorkforceTab({
         .select("singleton")
         .eq("singleton", true)
         .maybeSingle();
-      if (lookupError && lookupError.code !== "PGRST116") throw lookupError;
+      if (lookupError && !isMissingPayrollSettingsError(lookupError)) throw lookupError;
+      if (lookupError && isMissingPayrollSettingsError(lookupError)) {
+        return;
+      }
       if (existing) {
         const { error } = await dbAny
           .from("payroll_settings")
           .update({ overtime_multiplier: parsed })
           .eq("singleton", true);
-        if (error) throw error;
+        if (error && !isMissingPayrollSettingsError(error)) throw error;
       } else {
         const { error } = await dbAny
           .from("payroll_settings")
           .insert({ singleton: true, overtime_multiplier: parsed });
-        if (error) throw error;
+        if (error && !isMissingPayrollSettingsError(error)) throw error;
       }
     },
     onSuccess: () => {
