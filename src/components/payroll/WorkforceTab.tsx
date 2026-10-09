@@ -107,9 +107,11 @@ export function WorkforceTab({
         .from("payroll_settings")
         .select("overtime_multiplier")
         .eq("singleton", true)
-        .single();
-      if (error) throw error;
-      return data as { overtime_multiplier: number | null };
+        .maybeSingle();
+      if (error && error.code !== "PGRST116") throw error;
+      return (data as { overtime_multiplier: number | null } | null) ?? {
+        overtime_multiplier: null,
+      };
     },
   });
   const assignments = useQuery({
@@ -189,11 +191,24 @@ export function WorkforceTab({
         throw new Error(
           "Overtime multiplier must be greater than zero, or blank to disable overtime payroll.",
         );
-      const { error } = await dbAny
+      const { data: existing, error: lookupError } = await dbAny
         .from("payroll_settings")
-        .update({ overtime_multiplier: parsed })
-        .eq("singleton", true);
-      if (error) throw error;
+        .select("singleton")
+        .eq("singleton", true)
+        .maybeSingle();
+      if (lookupError && lookupError.code !== "PGRST116") throw lookupError;
+      if (existing) {
+        const { error } = await dbAny
+          .from("payroll_settings")
+          .update({ overtime_multiplier: parsed })
+          .eq("singleton", true);
+        if (error) throw error;
+      } else {
+        const { error } = await dbAny
+          .from("payroll_settings")
+          .insert({ singleton: true, overtime_multiplier: parsed });
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["payroll_settings"] });

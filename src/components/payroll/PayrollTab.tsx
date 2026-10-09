@@ -488,6 +488,15 @@ export function PayrollTab({
   onNewEmployee,
 }: Props) {
   const [month, setMonth] = useState(currentPayrollMonth);
+  const isMissingPayrollSettingsError = (
+    error: { code?: string; message?: string; status?: number } | null,
+  ) =>
+    !error ||
+    error.code === "PGRST116" ||
+    error.code === "42P01" ||
+    error.status === 404 ||
+    /payroll_settings|does not exist|not found/i.test(error.message ?? "");
+
   const timesheetsQuery = useTimesheetsForMonth(month);
   const timesheets = useMemo(() => timesheetsQuery.data ?? [], [timesheetsQuery.data]);
   const timesheetsLoading = timesheetsQuery.isLoading;
@@ -502,9 +511,11 @@ export function PayrollTab({
         .from("payroll_settings")
         .select("overtime_multiplier")
         .eq("singleton", true)
-        .single();
-      if (error) throw error;
-      return data as { overtime_multiplier: number | null };
+        .maybeSingle();
+      if (error && error.code !== "PGRST116") throw error;
+      return (data as { overtime_multiplier: number | null } | null) ?? {
+        overtime_multiplier: null,
+      };
     },
   });
   const payrollPolicy = useMemo(

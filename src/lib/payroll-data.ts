@@ -224,6 +224,16 @@ export function useSaveEmployee() {
   });
 }
 
+function isMissingPayrollSettingsError(error: { code?: string; message?: string; status?: number } | null) {
+  if (!error) return true;
+  return (
+    error.code === "PGRST116" ||
+    error.code === "42P01" ||
+    error.status === 404 ||
+    /payroll_settings|does not exist|not found/i.test(error.message ?? "")
+  );
+}
+
 export function useSaveBatch(canDelete = false) {
   const qc = useQueryClient();
   return useMutation({
@@ -232,10 +242,10 @@ export function useSaveBatch(canDelete = false) {
         .from("payroll_settings")
         .select("overtime_multiplier")
         .eq("singleton", true)
-        .single();
-      if (policyError) throw policyError;
-      const currentOvertimeMultiplier = (policyRow as { overtime_multiplier: number | null })
-        .overtime_multiplier;
+        .maybeSingle();
+      if (policyError && !isMissingPayrollSettingsError(policyError)) throw policyError;
+      const currentOvertimeMultiplier = (policyRow as { overtime_multiplier: number | null } | null)
+        ?.overtime_multiplier ?? null;
       let batchId = batch.id;
       if (batchId) {
         const { data, error } = await supabase
