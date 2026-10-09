@@ -1,274 +1,233 @@
-export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[]
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
+
+type TableShape<Row, Required extends keyof Row = never> = {
+  Row: Row;
+  Insert: Partial<Row> & Pick<Row, Required>;
+  Update: Partial<Row>;
+  Relationships: [];
+};
+
+type Employee = {
+  id: number;
+  name: string;
+  trade: string;
+  id_number: string;
+  hourly_rate: number;
+  status: string;
+  created_at: string;
+};
+type PayrollBatchRow = {
+  id: string;
+  month: string;
+  site: string;
+  foreman: string;
+  status: string;
+  approved_by: string | null;
+  approved_at: string | null;
+  locked_by: string | null;
+  locked_at: string | null;
+  paid_by: string | null;
+  paid_at: string | null;
+  created_at: string;
+};
+type PayrollLineRow = {
+  id: string;
+  batch_id: string;
+  employee_id: number;
+  month: string;
+  foreman: string;
+  hours: number;
+  rate: number;
+  food_deduction: number;
+  prev_advance: number;
+  new_advance: number;
+  other_deduction: number;
+  net_salary: number;
+  paid: number;
+  calculation_version: string | null;
+  regular_hours: number | null;
+  overtime_hours: number | null;
+  regular_pay: number | null;
+  overtime_pay: number | null;
+  allowances: number | null;
+  gross_pay: number | null;
+  deductions: number | null;
+  advance_recovery: number | null;
+  net_pay: number | null;
+  rate_segments: Json | null;
+  overtime_multiplier: number | null;
+  created_at: string;
+};
+type Timesheet = {
+  id: string;
+  employee_id: number;
+  site: string;
+  foreman: string;
+  work_date: string;
+  in_time: string | null;
+  out_time: string | null;
+  break_hours: number;
+  total_hours: number;
+  regular_hours: number;
+  overtime_hours: number;
+  status: string;
+  remarks: string | null;
+  created_at: string;
+};
+type SiteAllocation = {
+  id: string;
+  payroll_line_id: string;
+  employee_id: number;
+  month: string;
+  site: string;
+  foreman: string;
+  regular_hours: number;
+  overtime_hours: number;
+  allocated_regular_pay: number;
+  allocated_overtime_pay: number;
+  allocated_allowances: number;
+  allocated_gross_cost: number;
+  allocation_basis: string;
+  calculation_version: string | null;
+  created_at: string;
+};
+type AdvanceTransaction = {
+  id: string;
+  employee_id: number;
+  date: string | null;
+  amount: number;
+  reason: string | null;
+  payment_method: string | null;
+  notes: string | null;
+  created_at: string;
+};
+type UserRole = { user_id: string; email: string | null; role: string; created_at: string };
+type AuditLog = {
+  id: string;
+  table_name: string;
+  record_id: string | null;
+  operation: string;
+  actor_id: string | null;
+  actor_email: string | null;
+  old_data: Json | null;
+  new_data: Json | null;
+  changed_at: string;
+};
+type SalaryHistory = {
+  id: string;
+  employee_id: number;
+  hourly_rate: number;
+  effective_on: string;
+  created_by: string | null;
+  created_at: string;
+};
+type SiteAssignment = {
+  id: string;
+  employee_id: number;
+  site: string;
+  foreman: string;
+  effective_from: string;
+  effective_to: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+type TransferRequest = {
+  id: string;
+  employee_id: number;
+  from_site: string | null;
+  to_site: string;
+  to_foreman: string;
+  effective_on: string;
+  reason: string;
+  status: string;
+  requested_by: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+};
+type LeaveType = {
+  id: string;
+  name: string;
+  annual_entitlement_days: number | null;
+  payroll_treatment: string;
+  active: boolean;
+  created_at: string;
+};
+type LeaveRequest = {
+  id: string;
+  employee_id: number;
+  leave_type_id: string;
+  start_date: string;
+  end_date: string;
+  requested_days: number;
+  reason: string;
+  status: string;
+  requested_by: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+};
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.5"
-  }
+  __InternalSupabase: { PostgrestVersion: "14.5" };
   public: {
     Tables: {
-      employees: {
-        Row: {
-          created_at: string
-          hourly_rate: number
-          id: number
-          id_number: string
-          name: string
-          status: string
-          trade: string
-        }
-        Insert: {
-          created_at?: string
-          hourly_rate?: number
-          id?: number
-          id_number?: string
-          name: string
-          status?: string
-          trade?: string
-        }
-        Update: {
-          created_at?: string
-          hourly_rate?: number
-          id?: number
-          id_number?: string
-          name?: string
-          status?: string
-          trade?: string
-        }
-        Relationships: []
-      }
-      payroll_batches: {
-        Row: {
-          created_at: string
-          foreman: string
-          id: string
-          month: string
-          site: string
-        }
-        Insert: {
-          created_at?: string
-          foreman?: string
-          id?: string
-          month: string
-          site?: string
-        }
-        Update: {
-          created_at?: string
-          foreman?: string
-          id?: string
-          month?: string
-          site?: string
-        }
-        Relationships: []
-      }
-      payroll_lines: {
-        Row: {
-          batch_id: string
-          created_at: string
-          employee_id: number
-          food_deduction: number
-          foreman: string
-          hours: number
-          id: string
-          month: string
-          net_salary: number
-          new_advance: number
-          other_deduction: number
-          paid: number
-          prev_advance: number
-          rate: number
-        }
-        Insert: {
-          batch_id: string
-          created_at?: string
-          employee_id: number
-          food_deduction?: number
-          foreman?: string
-          hours?: number
-          id?: string
-          month: string
-          net_salary?: number
-          new_advance?: number
-          other_deduction?: number
-          paid?: number
-          prev_advance?: number
-          rate?: number
-        }
-        Update: {
-          batch_id?: string
-          created_at?: string
-          employee_id?: number
-          food_deduction?: number
-          foreman?: string
-          hours?: number
-          id?: string
-          month?: string
-          net_salary?: number
-          new_advance?: number
-          other_deduction?: number
-          paid?: number
-          prev_advance?: number
-          rate?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "payroll_lines_batch_id_fkey"
-            columns: ["batch_id"]
-            isOneToOne: false
-            referencedRelation: "payroll_batches"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "payroll_lines_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-    }
-    Views: {
-      [_ in never]: never
-    }
+      employees: TableShape<Employee, "name">;
+      payroll_batches: TableShape<PayrollBatchRow, "month">;
+      payroll_lines: TableShape<PayrollLineRow, "batch_id" | "employee_id" | "month">;
+      timesheets: TableShape<Timesheet, "employee_id" | "site" | "foreman" | "work_date">;
+      payroll_site_allocations: TableShape<
+        SiteAllocation,
+        "payroll_line_id" | "employee_id" | "month" | "site" | "foreman" | "allocation_basis"
+      >;
+      advance_transactions: TableShape<AdvanceTransaction, "employee_id" | "date" | "amount">;
+      users: TableShape<UserRole, "user_id" | "role">;
+      audit_logs: TableShape<AuditLog, "table_name" | "operation">;
+      employee_salary_history: TableShape<
+        SalaryHistory,
+        "employee_id" | "hourly_rate" | "effective_on"
+      >;
+      employee_site_assignments: TableShape<
+        SiteAssignment,
+        "employee_id" | "site" | "effective_from"
+      >;
+      employee_transfer_requests: TableShape<
+        TransferRequest,
+        "employee_id" | "to_site" | "effective_on"
+      >;
+      leave_types: TableShape<LeaveType, "name">;
+      leave_requests: TableShape<
+        LeaveRequest,
+        "employee_id" | "leave_type_id" | "start_date" | "end_date" | "requested_days"
+      >;
+      payroll_settings: TableShape<
+        {
+          singleton: boolean;
+          overtime_multiplier: number | null;
+          updated_at: string;
+          updated_by: string | null;
+        },
+        "singleton"
+      >;
+    };
+    Views: Record<string, never>;
     Functions: {
-      [_ in never]: never
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
-}
+      payroll_advance_balances_before: {
+        Args: { target_month: string };
+        Returns: Array<{ employee_id: number; balance: number }>;
+      };
+      has_payroll_role: { Args: { required_roles: string[] }; Returns: boolean };
+    };
+    Enums: Record<string, never>;
+    CompositeTypes: Record<string, never>;
+  };
+};
 
-type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+export type Tables<T extends keyof Database["public"]["Tables"]> =
+  Database["public"]["Tables"][T]["Row"];
+export type TablesInsert<T extends keyof Database["public"]["Tables"]> =
+  Database["public"]["Tables"][T]["Insert"];
+export type TablesUpdate<T extends keyof Database["public"]["Tables"]> =
+  Database["public"]["Tables"][T]["Update"];
 
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
-
-export type Tables<
-  DefaultSchemaTableNameOrOptions extends
-    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never) = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
-      Row: infer R
-    }
-    ? R
-    : never
-  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])
-    ? (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
-        Row: infer R
-      }
-      ? R
-      : never
-    : never
-
-export type TablesInsert<
-  DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never) = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Insert: infer I
-    }
-    ? I
-    : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Insert: infer I
-      }
-      ? I
-      : never
-    : never
-
-export type TablesUpdate<
-  DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never) = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Update: infer U
-    }
-    ? U
-    : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Update: infer U
-      }
-      ? U
-      : never
-    : never
-
-export type Enums<
-  DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never) = never,
-> = DefaultSchemaEnumNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
-  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
-    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-    : never
-
-export type CompositeTypes<
-  PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema["CompositeTypes"]
-    | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never) = never,
-> = PublicCompositeTypeNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
-  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
-    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-    : never
-
-export const Constants = {
-  public: {
-    Enums: {},
-  },
-} as const
+export const Constants = { public: { Enums: {} } } as const;

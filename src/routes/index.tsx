@@ -6,10 +6,12 @@ import {
   CheckCircle2,
   ClipboardList,
   FileDown,
+  FileSpreadsheet,
   History,
   Save,
   Users,
   Banknote,
+  BriefcaseBusiness,
   AlertTriangle,
   CalendarDays,
   Clock3,
@@ -62,6 +64,16 @@ const DashboardTab = lazy(() =>
 const AttendanceReportTab = lazy(() =>
   import("@/components/payroll/AttendanceReportTab").then((module) => ({
     default: module.AttendanceReportTab,
+  })),
+);
+const WorkforceTab = lazy(() =>
+  import("@/components/payroll/WorkforceTab").then((module) => ({
+    default: module.WorkforceTab,
+  })),
+);
+const WpsExportTab = lazy(() =>
+  import("@/components/payroll/WpsExportTab").then((module) => ({
+    default: module.WpsExportTab,
   })),
 );
 import {
@@ -121,6 +133,7 @@ export const Route = createFileRoute("/")({
 const TABS = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "employees", label: "Employees", icon: Users },
+  { id: "workforce", label: "Workforce & Leave", icon: BriefcaseBusiness },
   { id: "payroll", label: "Monthly Payroll", icon: Save },
   { id: "timesheets", label: "Daily Timesheets", icon: Clock3 },
   { id: "attendance", label: "Attendance Report", icon: CalendarDays },
@@ -128,6 +141,7 @@ const TABS = [
   { id: "history", label: "Employee History", icon: History },
   { id: "slips", label: "Salary Slips", icon: FileDown },
   { id: "cost", label: "Cost Allocation", icon: BarChart2 },
+  { id: "wps", label: "WPS Export", icon: FileSpreadsheet },
   { id: "audit", label: "Audit Log", icon: ClipboardList, adminOnly: true },
 ] as const;
 
@@ -663,6 +677,9 @@ function Dashboard({
               />
             )}
             {tab === "attendance" && <AttendanceReportTab employees={employees} />}
+            {tab === "workforce" && (
+              <WorkforceTab employees={employees} role={role} notify={notify} />
+            )}
             {tab === "employees" && (
               <EmployeesTab
                 employees={employees}
@@ -736,6 +753,7 @@ function Dashboard({
               <SlipsTab employees={employees} batches={batches} notify={notify} />
             )}
             {tab === "cost" && <CostTab employees={employees} notify={notify} />}
+            {tab === "wps" && <WpsExportTab employees={employees} role={role} />}
             {tab === "audit" && canDelete && <AuditHistoryTab />}
           </main>
         </Suspense>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -8,7 +9,6 @@ import {
   Eye,
   FileSpreadsheet,
   HardHat,
-  Lock,
   Pencil,
   Plus,
   Save,
@@ -58,6 +58,7 @@ import {
 } from "@/components/ui/dialog";
 import { btnGold, btnIcon, btnOutline, btnPrimary, card, input, inputSm, select } from "./ui";
 import { NewAdvanceValue } from "./NewAdvanceValue";
+import { dbAny } from "@/integrations/supabase/external-client";
 
 interface Props {
   employees: Employee[];
@@ -244,7 +245,7 @@ function EmployeeSearchSelect({ employees, locked, value, onPick }: EmployeeSear
               </span>
               {isLocked && (
                 <span className="flex items-center gap-1 text-[10px] font-bold uppercase text-warn">
-                  <Lock size={10} /> paid
+                  <CheckCircle2 size={10} /> paid
                 </span>
               )}
             </button>
@@ -321,6 +322,46 @@ function empIdLabel(employees: Employee[], id: number | "") {
   return e?.id_number?.trim() ? e.id_number.trim() : "Not Assigned";
 }
 
+function effectiveRateForMonth(
+  employeeId: number,
+  month: string,
+  salaryHistory: Array<{
+    employee_id: number;
+    hourly_rate: number;
+    effective_on: string;
+    created_at?: string;
+  }>,
+) {
+  return salaryHistory
+    .filter(
+      (record) => record.employee_id === employeeId && record.effective_on.slice(0, 7) <= month,
+    )
+    .sort(
+      (a, b) =>
+        b.effective_on.localeCompare(a.effective_on) ||
+        (b.created_at ?? "").localeCompare(a.created_at ?? ""),
+    )[0]?.hourly_rate;
+}
+
+function effectiveRateOnDate(
+  employeeId: number,
+  workDate: string,
+  salaryHistory: Array<{
+    employee_id: number;
+    hourly_rate: number;
+    effective_on: string;
+    created_at?: string;
+  }>,
+) {
+  return salaryHistory
+    .filter((record) => record.employee_id === employeeId && record.effective_on <= workDate)
+    .sort(
+      (a, b) =>
+        b.effective_on.localeCompare(a.effective_on) ||
+        (b.created_at ?? "").localeCompare(a.created_at ?? ""),
+    )[0]?.hourly_rate;
+}
+
 const emptyLine = (): PayrollLine => ({
   employee_id: "",
   foreman: "",
@@ -357,6 +398,7 @@ function validateBatch(
   employees: Employee[],
   carryForward: (employeeId: number | string) => number,
   locked: Set<string>,
+  policy = PAYROLL_POLICY,
 ) {
   const errors: string[] = [];
   if (!month || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
@@ -413,7 +455,10 @@ function validateBatch(
     const deductions =
       toNum(line.food_deduction) + toNum(line.prev_advance) + toNum(line.other_deduction);
     if (deductions > gross + 0.001) errors.push(`Line ${row}: deductions exceed gross pay.`);
-    if (toNum(line.overtime_hours) > 0 && PAYROLL_POLICY.overtimeMultiplier === null) {
+    if (
+      toNum(line.overtime_hours) > 0 &&
+      (line.overtime_multiplier ?? policy.overtimeMultiplier) === null
+    ) {
       errors.push(`Line ${row}: configure the overtime multiplier before saving overtime pay.`);
     }
     if (toNum(line.paid) > toNum(line.net_salary) + 0.001) {
@@ -443,6 +488,15 @@ export function PayrollTab({
   onNewEmployee,
 }: Props) {
   const [month, setMonth] = useState(currentPayrollMonth);
+  const isMissingPayrollSettingsError = (
+    error: { code?: string; message?: string; status?: number } | null,
+  ) =>
+    !error ||
+    error.code === "PGRST116" ||
+    error.code === "42P01" ||
+    error.status === 404 ||
+    /payroll_settings|does not exist|not found/i.test(error.message ?? "");
+
   const timesheetsQuery = useTimesheetsForMonth(month);
   const timesheets = useMemo(() => timesheetsQuery.data ?? [], [timesheetsQuery.data]);
   const timesheetsLoading = timesheetsQuery.isLoading;
@@ -450,6 +504,47 @@ export function PayrollTab({
     timesheetsQuery.error instanceof Error ? timesheetsQuery.error.message : "";
   const batchesQuery = useBatches(month);
   const batches = useMemo(() => batchesQuery.data ?? [], [batchesQuery.data]);
+  const payrollSettingsQuery = useQuery({
+    queryKey: ["payroll_settings"],
+    queryFn: async (): Promise<{ overtime_multiplier: number | null }> => {
+      const { data, error } = await dbAny
+        .from("payroll_settings")
+        .select("overtime_multiplier")
+        .eq("singleton", true)
+        .maybeSingle();
+      if (error && !isMissingPayrollSettingsError(error)) throw error;
+      return (data as { overtime_multiplier: number | null } | null) ?? {
+        overtime_multiplier: null,
+      };
+    },
+  });
+  const payrollPolicy = useMemo(
+    () => ({
+      ...PAYROLL_POLICY,
+      overtimeMultiplier: payrollSettingsQuery.data?.overtime_multiplier ?? null,
+    }),
+    [payrollSettingsQuery.data],
+  );
+  const salaryHistoryQuery = useQuery({
+    queryKey: ["employee_salary_history"],
+    queryFn: async (): Promise<
+      Array<{ employee_id: number; hourly_rate: number; effective_on: string; created_at: string }>
+    > => {
+      const { data, error } = await dbAny
+        .from("employee_salary_history")
+        .select("employee_id, hourly_rate, effective_on, created_at")
+        .order("effective_on", { ascending: false })
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as Array<{
+        employee_id: number;
+        hourly_rate: number;
+        effective_on: string;
+        created_at: string;
+      }>;
+    },
+  });
+  const salaryHistory = salaryHistoryQuery.data ?? [];
   const advanceBalancesQuery = usePayrollAdvanceBalancesBefore(month);
   const historicalAdvanceBalances = useMemo(
     () =>
@@ -529,16 +624,17 @@ export function PayrollTab({
   };
 
   const generateFromTimesheets = () => {
-    if (batchesQuery.error || advanceBalancesQuery.error) {
+    if (batchesQuery.error || advanceBalancesQuery.error || salaryHistoryQuery.error) {
       notify(
         `Could not load payroll safeguards: ${
-          (batchesQuery.error ?? advanceBalancesQuery.error)?.message ?? "Unknown error"
+          (batchesQuery.error ?? advanceBalancesQuery.error ?? salaryHistoryQuery.error)?.message ??
+          "Unknown error"
         }`,
         "warn",
       );
       return;
     }
-    if (batchesQuery.isLoading || advanceBalancesQuery.isLoading) {
+    if (batchesQuery.isLoading || advanceBalancesQuery.isLoading || salaryHistoryQuery.isLoading) {
       notify("Payroll safeguards are still loading. Try again in a moment.", "warn");
       return;
     }
@@ -589,38 +685,72 @@ export function PayrollTab({
         inactive.push(employee.name);
         return;
       }
-      if (!(employee.hourly_rate > 0)) {
-        inactive.push(`${employee.name} (missing hourly rate)`);
+      const rateSegmentsByRate = new Map<number, { regularHours: number; overtimeHours: number }>();
+      let missingRateDate: string | null = null;
+      monthlyEntries
+        .filter((entry) => entry.employee_id === employee.id)
+        .forEach((entry) => {
+          const regularHours = Number(entry.regular_hours ?? 0);
+          const overtimeHours = Number(entry.overtime_hours ?? 0);
+          if (regularHours + overtimeHours <= 0) return;
+          const rate = effectiveRateOnDate(employee.id, entry.work_date, salaryHistory);
+          if (rate === undefined || rate <= 0) {
+            missingRateDate = entry.work_date;
+            return;
+          }
+          const segment = rateSegmentsByRate.get(rate) ?? { regularHours: 0, overtimeHours: 0 };
+          segment.regularHours += regularHours;
+          segment.overtimeHours += overtimeHours;
+          rateSegmentsByRate.set(rate, segment);
+        });
+      if (missingRateDate) {
+        inactive.push(`${employee.name} (no recorded rate on ${missingRateDate})`);
         return;
       }
-      if (total.overtimeHours > 0 && PAYROLL_POLICY.overtimeMultiplier === null) {
+      const rateSegments = [...rateSegmentsByRate.entries()].map(([rate, hours]) => ({
+        rate,
+        ...hours,
+      }));
+      if (!rateSegments.length) return;
+      const regularHours = rateSegments.reduce((sum, segment) => sum + segment.regularHours, 0);
+      const overtimeHours = rateSegments.reduce((sum, segment) => sum + segment.overtimeHours, 0);
+      const totalRateHours = regularHours + overtimeHours;
+      const effectiveRate =
+        rateSegments.reduce(
+          (sum, segment) => sum + segment.rate * (segment.regularHours + segment.overtimeHours),
+          0,
+        ) / totalRateHours;
+      if (total.overtimeHours > 0 && payrollPolicy.overtimeMultiplier === null) {
         return;
       }
       const outstanding = carryForward(employee.id);
       const calculation = calculatePayroll({
-        regularHours: total.regularHours,
-        overtimeHours: total.overtimeHours,
-        rate: employee.hourly_rate,
+        regularHours,
+        overtimeHours,
+        rate: effectiveRate,
+        rateSegments,
         allowances: 0,
         deductions: 0,
         advanceRecovery: 0,
-        policy: PAYROLL_POLICY,
+        policy: payrollPolicy,
       });
       const advanceRecovery = Math.min(outstanding, calculation.grossPay);
       const finalCalculation = calculatePayroll({
-        regularHours: total.regularHours,
-        overtimeHours: total.overtimeHours,
-        rate: employee.hourly_rate,
+        regularHours,
+        overtimeHours,
+        rate: effectiveRate,
+        rateSegments,
         allowances: 0,
         deductions: 0,
         advanceRecovery,
-        policy: PAYROLL_POLICY,
+        policy: payrollPolicy,
       });
       const line: PayrollLine = {
         employee_id: employee.id,
         foreman: total.foremen.size === 1 ? [...total.foremen][0]! : "Multiple foremen",
         hours: Number((total.regularHours + total.overtimeHours).toFixed(3)),
-        rate: employee.hourly_rate,
+        rate: effectiveRate,
+        rate_segments: rateSegments,
         food_deduction: 0,
         prev_advance: advanceRecovery,
         new_advance: 0,
@@ -628,6 +758,7 @@ export function PayrollTab({
         net_salary: finalCalculation.netPay,
         paid: 0,
         calculation_version: PAYROLL_CALCULATION_VERSION,
+        overtime_multiplier: payrollPolicy.overtimeMultiplier,
         regular_hours: finalCalculation.regularHours,
         overtime_hours: finalCalculation.overtimeHours,
         regular_pay: finalCalculation.regularPay,
@@ -642,7 +773,7 @@ export function PayrollTab({
     });
 
     const blockedByOvertimePolicy = [...totals.values()].some(
-      (total) => total.overtimeHours > 0 && PAYROLL_POLICY.overtimeMultiplier === null,
+      (total) => total.overtimeHours > 0 && payrollPolicy.overtimeMultiplier === null,
     );
     if (blockedByOvertimePolicy) {
       notify(
@@ -690,8 +821,9 @@ export function PayrollTab({
   };
 
   const validationErrors = useMemo(
-    () => (draft ? validateBatch(draft, month, employees, carryForward, locked) : []),
-    [draft, month, employees, carryForward, locked],
+    () =>
+      draft ? validateBatch(draft, month, employees, carryForward, locked, payrollPolicy) : [],
+    [draft, month, employees, carryForward, locked, payrollPolicy],
   );
 
   const importFile = async (file: File) => {
@@ -791,7 +923,9 @@ export function PayrollTab({
           employee_id: employee.id,
           foreman: values["foreman"] || draft?.foreman || "",
           hours,
-          rate: values["rate"]?.trim() ? rate : employee.hourly_rate,
+          rate: values["rate"]?.trim()
+            ? rate
+            : (effectiveRateForMonth(employee.id, month, salaryHistory) ?? ""),
           food_deduction: food,
           prev_advance:
             values["previousadvance"] || values["prevadvance"] || values["prevadv"]
@@ -846,6 +980,13 @@ export function PayrollTab({
       const lines = d.lines.map((l, i) => {
         if (i !== idx) return l;
         const next = { ...l, ...patch };
+        if (
+          patch.hours !== undefined ||
+          patch.overtime_hours !== undefined ||
+          patch.rate !== undefined
+        ) {
+          next.rate_segments = null;
+        }
         if (next.calculation_version) {
           const overtimeHours = toNum(next.overtime_hours);
           const regularHours =
@@ -856,10 +997,14 @@ export function PayrollTab({
             regularHours,
             overtimeHours,
             rate: toNum(next.rate),
+            rateSegments: next.rate_segments ?? undefined,
             allowances: toNum(next.allowances),
             deductions: toNum(next.food_deduction) + toNum(next.other_deduction),
             advanceRecovery: toNum(next.prev_advance),
-            policy: PAYROLL_POLICY,
+            policy: {
+              ...payrollPolicy,
+              overtimeMultiplier: next.overtime_multiplier ?? payrollPolicy.overtimeMultiplier,
+            },
           });
           Object.assign(next, {
             hours: calculation.regularHours + calculation.overtimeHours,
@@ -895,7 +1040,7 @@ export function PayrollTab({
     const emp = employees.find((e) => String(e.id) === value);
     setLine(idx, {
       employee_id: value ? Number(value) : "",
-      rate: emp ? emp.hourly_rate : "",
+      rate: emp ? (effectiveRateForMonth(emp.id, month, salaryHistory) ?? "") : "",
       prev_advance: emp ? carryForward(emp.id) : "",
     });
   };
@@ -926,6 +1071,55 @@ export function PayrollTab({
   };
 
   const changeStatus = async (batch: PayrollBatch, status: PayrollBatchStatus) => {
+    if (status === "APPROVED") {
+      const otherBatchEmployees = lockedEmployeeIds(batches, batch.month, batch.id);
+      const issues = validateBatch(
+        batch,
+        batch.month,
+        employees,
+        carryForward,
+        otherBatchEmployees,
+        payrollPolicy,
+      );
+      if (issues.length) {
+        notify(`Payroll reconciliation failed: ${issues.slice(0, 3).join(" ")}`, "warn");
+        return;
+      }
+      const snapshotIssues = batch.lines.flatMap((line, index) => {
+        if (!line.calculation_version) return [];
+        const calculation = calculatePayroll({
+          regularHours:
+            line.regular_hours === null || line.regular_hours === undefined
+              ? Math.max(0, toNum(line.hours) - toNum(line.overtime_hours))
+              : toNum(line.regular_hours),
+          overtimeHours: toNum(line.overtime_hours),
+          rate: toNum(line.rate),
+          allowances: toNum(line.allowances),
+          deductions: toNum(line.food_deduction) + toNum(line.other_deduction),
+          advanceRecovery: toNum(line.prev_advance),
+          rateSegments: line.rate_segments ?? undefined,
+          policy: {
+            ...payrollPolicy,
+            overtimeMultiplier: line.overtime_multiplier ?? payrollPolicy.overtimeMultiplier,
+          },
+        });
+        const comparisons: Array<[string, unknown, number]> = [
+          ["gross", line.gross_pay, calculation.grossPay],
+          ["deductions", line.deductions, calculation.deductions],
+          ["advance recovery", line.advance_recovery, calculation.advanceRecovery],
+          ["net", line.net_pay ?? line.net_salary, calculation.netPay],
+        ];
+        return comparisons
+          .filter(
+            ([_, actual, expected]) => actual == null || Math.abs(toNum(actual) - expected) > 0.001,
+          )
+          .map(([label]) => `Line ${index + 1}: ${label} does not match its calculation snapshot.`);
+      });
+      if (snapshotIssues.length) {
+        notify(`Payroll reconciliation failed: ${snapshotIssues[0]}`, "warn");
+        return;
+      }
+    }
     try {
       await onStatus(batch.id, status);
       notify(`Payroll batch status changed to ${status}.`);
@@ -1022,7 +1216,7 @@ export function PayrollTab({
 
       {locked.size > 0 && (
         <p className="flex items-center gap-2 rounded-lg border border-gold/40 bg-gold/10 px-3 py-2 text-xs font-medium text-slate-700">
-          <Lock size={14} className="text-gold-dark" />
+          <CheckCircle2 size={14} className="text-gold-dark" />
           {locked.size} employee(s) already paid in another batch for {monthLabel(month)} — they are
           blocked here to prevent double payment.
         </p>
@@ -1653,16 +1847,7 @@ export function PayrollTab({
                   </button>
                 </>
               )}
-              {canDelete && b.status === "APPROVED" && (
-                <button
-                  type="button"
-                  onClick={() => void changeStatus(b, "LOCKED")}
-                  className={btnPrimary}
-                >
-                  <Lock size={14} /> Lock
-                </button>
-              )}
-              {canDelete && b.status === "LOCKED" && (
+              {canDelete && ["APPROVED", "LOCKED"].includes(b.status) && (
                 <button
                   type="button"
                   onClick={() => void changeStatus(b, "PAID")}
