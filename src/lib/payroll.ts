@@ -32,8 +32,18 @@ export interface PayrollLine {
   deductions?: number | string | null;
   advance_recovery?: number | string | null;
   net_pay?: number | string | null;
+  rate_segments?: PayrollRateSegment[] | null | undefined;
+  overtime_multiplier?: number | null;
 }
 
+export interface PayrollRateSegment {
+  [key: string]: number;
+  regularHours: number;
+  overtimeHours: number;
+  rate: number;
+}
+
+// LOCKED remains readable for historical rows; the application no longer creates that status.
 export type PayrollBatchStatus = "LEGACY" | "DRAFT" | "REVIEW" | "APPROVED" | "LOCKED" | "PAID";
 
 export interface PayrollBatch {
@@ -100,7 +110,7 @@ export function fmt(n: number) {
   });
 }
 
-export const PAYROLL_CALCULATION_VERSION = "attendance-v1";
+export const PAYROLL_CALCULATION_VERSION = "attendance-v2";
 
 export interface PayrollPolicy {
   version: string;
@@ -143,6 +153,7 @@ export interface PayrollCalculationInput {
   allowances: number;
   deductions: number;
   advanceRecovery: number;
+  rateSegments?: PayrollRateSegment[] | undefined;
   policy: PayrollPolicy;
 }
 
@@ -176,14 +187,46 @@ export function calculatePayroll(input: PayrollCalculationInput): PayrollCalcula
   if (values.some((value) => !Number.isFinite(value) || value < 0)) {
     throw new Error("Payroll calculation values must be finite and non-negative.");
   }
+  if (
+    input.rateSegments?.some((segment) =>
+      [segment.regularHours, segment.overtimeHours, segment.rate].some(
+        (value) => !Number.isFinite(value) || value < 0,
+      ),
+    )
+  ) {
+    throw new Error("Payroll rate segments must contain finite, non-negative values.");
+  }
+  if (input.rateSegments) {
+    const segmentRegularHours = input.rateSegments.reduce(
+      (sum, item) => sum + item.regularHours,
+      0,
+    );
+    const segmentOvertimeHours = input.rateSegments.reduce(
+      (sum, item) => sum + item.overtimeHours,
+      0,
+    );
+    if (
+      Math.abs(segmentRegularHours - input.regularHours) > 0.001 ||
+      Math.abs(segmentOvertimeHours - input.overtimeHours) > 0.001
+    ) {
+      throw new Error("Payroll rate segment hours do not match the payroll line hours.");
+    }
+  }
   if (input.overtimeHours > 0 && input.policy.overtimeMultiplier === null) {
     throw new Error("Configure the overtime multiplier before generating payroll with overtime.");
   }
 
   const round = (value: number) => roundPayrollAmount(value, input.policy.roundingDecimals);
-  const regularPay = round(input.regularHours * input.rate);
+  const regularPay = round(
+    input.rateSegments
+      ? input.rateSegments.reduce((sum, segment) => sum + segment.regularHours * segment.rate, 0)
+      : input.regularHours * input.rate,
+  );
   const overtimePay = round(
-    input.overtimeHours * input.rate * (input.policy.overtimeMultiplier ?? 0),
+    input.rateSegments
+      ? input.rateSegments.reduce((sum, segment) => sum + segment.overtimeHours * segment.rate, 0) *
+          (input.policy.overtimeMultiplier ?? 0)
+      : input.overtimeHours * input.rate * (input.policy.overtimeMultiplier ?? 0),
   );
   const allowances = round(input.allowances);
   const grossPay = round(regularPay + overtimePay + allowances);

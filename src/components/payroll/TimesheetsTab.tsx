@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CalendarDays,
@@ -12,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
+import { dbAny } from "@/integrations/supabase/external-client";
 import { useTimesheetsForDate, type TimesheetRecord } from "@/lib/payroll-data";
 import { MonthlyAttendanceDialog } from "./MonthlyAttendanceDialog";
 import { TimeControl } from "./TimeControl";
@@ -146,6 +148,30 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   const [workDate, setWorkDate] = useState(today);
   const previousDate = previousCalendarDate(workDate);
   const timesheetsQuery = useTimesheetsForDate(workDate);
+  const assignmentsQuery = useQuery({
+    queryKey: ["employee_site_assignments"],
+    queryFn: async (): Promise<
+      Array<{
+        employee_id: number;
+        site: string;
+        foreman: string;
+        effective_from: string;
+        effective_to: string | null;
+      }>
+    > => {
+      const { data, error } = await dbAny
+        .from("employee_site_assignments")
+        .select("employee_id,site,foreman,effective_from,effective_to");
+      if (error) throw error;
+      return (data ?? []) as Array<{
+        employee_id: number;
+        site: string;
+        foreman: string;
+        effective_from: string;
+        effective_to: string | null;
+      }>;
+    },
+  });
   const previousTimesheetsQuery = useTimesheetsForDate(previousDate);
   const timesheets = useMemo(() => timesheetsQuery.data ?? [], [timesheetsQuery.data]);
   const previousEntries = useMemo(
@@ -198,6 +224,29 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
       }),
     [employeeById, selectedIds],
   );
+  const applyRecordedAssignment = () => {
+    const matches = (assignmentsQuery.data ?? []).filter(
+      (a) =>
+        selectedIds.includes(a.employee_id) &&
+        a.effective_from <= workDate &&
+        (!a.effective_to || a.effective_to >= workDate),
+    );
+    if (matches.length !== selectedIds.length) {
+      notify("One or more selected employees have no recorded assignment for this date.", "warn");
+      return;
+    }
+    const keys = new Set(matches.map((a) => batchKey(a.site, a.foreman)));
+    if (keys.size !== 1) {
+      notify(
+        "Selected employees have different recorded assignments. Create separate attendance batches.",
+        "warn",
+      );
+      return;
+    }
+    setSite(matches[0]!.site);
+    setForeman(matches[0]!.foreman);
+    setDirty(true);
+  };
   const filteredPickerEmployees = useMemo(() => {
     const query = employeeSearch.trim().toLowerCase();
     return activeEmployees.filter((employee) => {
@@ -659,6 +708,14 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
             className={`${input} rounded-md px-2 py-1 text-xs`}
           />
         </label>
+        <button
+          type="button"
+          className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
+          disabled={!selectedIds.length || assignmentsQuery.isLoading}
+          onClick={applyRecordedAssignment}
+        >
+          Use recorded assignment
+        </button>
         <label className="attendance-batch-field">
           Site / project
           <input

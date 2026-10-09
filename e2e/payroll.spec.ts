@@ -12,6 +12,7 @@ interface MockState {
   advance_transactions: Array<Record<string, unknown>>;
   timesheets: Array<Record<string, unknown>>;
   payroll_site_allocations: Array<Record<string, unknown>>;
+  employee_salary_history: Array<Record<string, unknown>>;
 }
 
 async function mockPayrollBackend(page: Page, role: "admin" | "hr") {
@@ -32,6 +33,15 @@ async function mockPayrollBackend(page: Page, role: "admin" | "hr") {
     advance_transactions: [],
     timesheets: [],
     payroll_site_allocations: [],
+    employee_salary_history: [
+      {
+        id: randomUUID(),
+        employee_id: 1,
+        hourly_rate: 3,
+        effective_on: "2026-10-05",
+        created_at: timestamp,
+      },
+    ],
   };
   const reads = new Map<string, number>();
   let publishRealtime: (

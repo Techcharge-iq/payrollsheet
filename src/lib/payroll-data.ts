@@ -141,6 +141,7 @@ export function useBatches(month?: string, enabled = true) {
           deductions: l.deductions,
           advance_recovery: l.advance_recovery,
           net_pay: l.net_pay,
+          rate_segments: (l.rate_segments ?? null) as PayrollLine["rate_segments"],
         };
         (byBatch[l.batch_id] ??= []).push(line);
       });
@@ -227,6 +228,14 @@ export function useSaveBatch(canDelete = false) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (batch: PayrollBatch) => {
+      const { data: policyRow, error: policyError } = await dbAny
+        .from("payroll_settings")
+        .select("overtime_multiplier")
+        .eq("singleton", true)
+        .single();
+      if (policyError) throw policyError;
+      const currentOvertimeMultiplier = (policyRow as { overtime_multiplier: number | null })
+        .overtime_multiplier;
       let batchId = batch.id;
       if (batchId) {
         const { data, error } = await supabase
@@ -263,7 +272,11 @@ export function useSaveBatch(canDelete = false) {
             allowances: toNum(l.allowances),
             deductions: toNum(l.food_deduction) + toNum(l.other_deduction),
             advanceRecovery: toNum(l.prev_advance),
-            policy: PAYROLL_POLICY,
+            rateSegments: l.rate_segments ?? undefined,
+            policy: {
+              ...PAYROLL_POLICY,
+              overtimeMultiplier: l.overtime_multiplier ?? currentOvertimeMultiplier,
+            },
           });
 
           return {
@@ -290,6 +303,8 @@ export function useSaveBatch(canDelete = false) {
             deductions: calculation.deductions,
             advance_recovery: calculation.advanceRecovery,
             net_pay: calculation.netPay,
+            rate_segments: l.rate_segments ?? null,
+            overtime_multiplier: l.overtime_multiplier ?? currentOvertimeMultiplier,
           };
         });
 
