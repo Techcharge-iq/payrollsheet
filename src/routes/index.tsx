@@ -22,6 +22,7 @@ import {
   Search,
   Menu,
   X,
+  UserRound,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 
@@ -74,6 +75,11 @@ const WorkforceTab = lazy(() =>
 const WpsExportTab = lazy(() =>
   import("@/components/payroll/WpsExportTab").then((module) => ({
     default: module.WpsExportTab,
+  })),
+);
+const ManagementTab = lazy(() =>
+  import("@/components/payroll/ManagementTab").then((module) => ({
+    default: module.ManagementTab,
   })),
 );
 import {
@@ -143,6 +149,7 @@ const TABS = [
   { id: "cost", label: "Cost Allocation", icon: BarChart2 },
   { id: "wps", label: "WPS Export", icon: FileSpreadsheet },
   { id: "audit", label: "Audit Log", icon: ClipboardList, adminOnly: true },
+  { id: "managing", label: "Managing", icon: UserRound, adminOnly: true },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -209,12 +216,12 @@ function AuthGate() {
     setRoleLoading(true);
     void db
       .from("users")
-      .select("role")
+      .select("role,is_active")
       .eq("user_id", userId)
       .maybeSingle()
       .then(({ data, error }) => {
         if (!active) return;
-        setRole(data?.role ?? null);
+        setRole(data?.is_active ? data.role : null);
         setRoleError(error?.message ?? "");
         setRoleLoading(false);
       });
@@ -234,7 +241,7 @@ function AuthGate() {
 
   if (!session) return <LoginPage />;
 
-  if (roleError || (role !== "admin" && role !== "hr")) {
+  if (roleError || !role || !["admin", "hr", "manager", "foreman"].includes(role)) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-canvas px-4">
         <section className="w-full max-w-lg rounded-2xl border border-border bg-card p-7 text-center shadow-lg">
@@ -242,7 +249,7 @@ function AuthGate() {
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {roleError
               ? `We could not verify your payroll role: ${roleError}`
-              : "Your account does not have an Admin or HR role. Ask your payroll administrator to assign access."}
+              : "Your account does not have an authorized payroll role. Ask your payroll administrator to assign access."}
           </p>
           <button
             onClick={() => void db.auth.signOut()}
@@ -268,7 +275,7 @@ function Dashboard({
   userId: string;
 }) {
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<TabId>("overview");
+  const [tab, setTab] = useState<TabId>(role === "foreman" ? "timesheets" : "overview");
   const [mode, setMode] = useState<ModalMode>(null);
   const [form, setForm] = useState<EmployeeForm>(emptyForm);
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "warn" } | null>(null);
@@ -288,6 +295,24 @@ function Dashboard({
   const batchesQuery = useBatches(undefined, cacheReady && needsPayrollHistory);
   const saveEmployee = useSaveEmployee();
   const canDelete = role === "admin";
+  const availableTabs = TABS.filter((item) => {
+    if ("adminOnly" in item && item.adminOnly && !canDelete) return false;
+    if (role === "foreman") return item.id === "timesheets" || item.id === "workforce";
+    if (role === "manager") {
+      return [
+        "overview",
+        "workforce",
+        "payroll",
+        "timesheets",
+        "attendance",
+        "advances",
+        "history",
+        "slips",
+        "cost",
+      ].includes(item.id);
+    }
+    return true;
+  });
   const saveBatch = useSaveBatch(canDelete);
   const updateBatchStatus = useUpdateBatchStatus();
   const deleteBatch = useDeleteBatch();
@@ -409,7 +434,8 @@ function Dashboard({
 
   const error = employeesQuery.error ?? batchesQuery.error ?? advancesQuery.error;
   const commandActions = useMemo(
-    () => [
+    () =>
+      [
       {
         id: "new-employee",
         label: "New employee",
@@ -477,7 +503,18 @@ function Dashboard({
         shortcut: "C",
         action: () => navigateToTab("cost"),
       },
-      ...(canDelete
+        ...(canDelete
+        ? [
+            {
+              id: "managing",
+              label: "Open user and project management",
+              description: "Manage accounts, roles, and projects",
+              shortcut: "M",
+              action: () => navigateToTab("managing"),
+            },
+          ]
+        : []),
+        ...(canDelete
         ? [
             {
               id: "audit",
@@ -487,9 +524,9 @@ function Dashboard({
               action: () => navigateToTab("audit"),
             },
           ]
-        : []),
-    ],
-    [canDelete, navigateToTab],
+          : []),
+      ].filter((action) => availableTabs.some((item) => item.id === action.id)),
+    [availableTabs, canDelete, navigateToTab],
   );
 
   useEffect(() => {
@@ -561,7 +598,7 @@ function Dashboard({
           <span>{mobileMenuOpen ? "Close menu" : `Menu · ${activeTab?.label ?? "Navigate"}`}</span>
         </button>
         <div id="application-menu-links" className="floating-menu-links">
-          {TABS.filter((item) => !("adminOnly" in item) || canDelete).map(
+          {availableTabs.map(
             ({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -755,6 +792,7 @@ function Dashboard({
             {tab === "cost" && <CostTab employees={employees} notify={notify} />}
             {tab === "wps" && <WpsExportTab employees={employees} role={role} />}
             {tab === "audit" && canDelete && <AuditHistoryTab />}
+            {tab === "managing" && canDelete && <ManagementTab currentUserId={userId} />}
           </main>
         </Suspense>
 

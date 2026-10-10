@@ -12,19 +12,25 @@ export type Database = {
         Row: {
           created_at: string;
           email: string | null;
+          full_name: string | null;
           role: string;
+          is_active: boolean;
           user_id: string;
         };
         Insert: {
           created_at?: string;
           email?: string | null;
+          full_name?: string | null;
           role: string;
+          is_active?: boolean;
           user_id: string;
         };
         Update: {
           created_at?: string;
           email?: string | null;
+          full_name?: string | null;
           role?: string;
+          is_active?: boolean;
           user_id?: string;
         };
         Relationships: [];
@@ -65,6 +71,8 @@ export type Database = {
           approved_by: string | null;
           created_at: string;
           foreman: string;
+          project_id: string | null;
+          foreman_user_id: string | null;
           id: string;
           locked_at: string | null;
           locked_by: string | null;
@@ -79,6 +87,8 @@ export type Database = {
           approved_by?: string | null;
           created_at?: string;
           foreman?: string;
+          project_id?: string | null;
+          foreman_user_id?: string | null;
           id?: string;
           locked_at?: string | null;
           locked_by?: string | null;
@@ -93,6 +103,8 @@ export type Database = {
           approved_by?: string | null;
           created_at?: string;
           foreman?: string;
+          project_id?: string | null;
+          foreman_user_id?: string | null;
           id?: string;
           locked_at?: string | null;
           locked_by?: string | null;
@@ -121,6 +133,7 @@ export type Database = {
           employee_id: number;
           food_deduction: number;
           foreman: string;
+          foreman_user_id: string | null;
           hours: number;
           id: string;
           month: string;
@@ -147,6 +160,7 @@ export type Database = {
           employee_id: number;
           food_deduction?: number;
           foreman?: string;
+          foreman_user_id?: string | null;
           hours?: number;
           id?: string;
           month: string;
@@ -173,6 +187,7 @@ export type Database = {
           employee_id?: number;
           food_deduction?: number;
           foreman?: string;
+          foreman_user_id?: string | null;
           hours?: number;
           id?: string;
           month?: string;
@@ -206,6 +221,8 @@ export type Database = {
           employee_id: number;
           site: string;
           foreman: string;
+          project_id: string | null;
+          foreman_user_id: string | null;
           work_date: string;
           status: "PRESENT" | "ABSENT" | "LEAVE" | "HOLIDAY" | "WEEKLY_OFF" | "HALF_DAY";
           in_time: string | null;
@@ -222,6 +239,8 @@ export type Database = {
           employee_id: number;
           site: string;
           foreman: string;
+          project_id?: string | null;
+          foreman_user_id?: string | null;
           work_date: string;
           status?: "PRESENT" | "ABSENT" | "LEAVE" | "HOLIDAY" | "WEEKLY_OFF" | "HALF_DAY";
           in_time: string | null;
@@ -236,6 +255,8 @@ export type Database = {
           employee_id?: number;
           site?: string;
           foreman?: string;
+          project_id?: string | null;
+          foreman_user_id?: string | null;
           work_date?: string;
           status?: "PRESENT" | "ABSENT" | "LEAVE" | "HOLIDAY" | "WEEKLY_OFF" | "HALF_DAY";
           in_time?: string | null;
@@ -262,6 +283,7 @@ export type Database = {
           employee_id: number;
           month: string;
           site: string;
+          project_id: string | null;
           foreman: string;
           regular_hours: number;
           overtime_hours: number;
@@ -279,6 +301,7 @@ export type Database = {
           employee_id: number;
           month: string;
           site: string;
+          project_id?: string | null;
           foreman?: string;
           regular_hours?: number;
           overtime_hours?: number;
@@ -296,6 +319,7 @@ export type Database = {
           employee_id?: number;
           month?: string;
           site?: string;
+          project_id?: string | null;
           foreman?: string;
           regular_hours?: number;
           overtime_hours?: number;
@@ -306,6 +330,66 @@ export type Database = {
           allocation_basis?: string;
           calculation_version?: string | null;
           created_at?: string;
+        };
+        projects: {
+          Row: {
+            id: string;
+            name: string;
+            code: string | null;
+            location: string | null;
+            notes: string | null;
+            active: boolean;
+            foreman_user_id: string | null;
+            created_at: string;
+            updated_at: string;
+          };
+          Insert: {
+            id?: string;
+            name: string;
+            code?: string | null;
+            location?: string | null;
+            notes?: string | null;
+            active?: boolean;
+            foreman_user_id?: string | null;
+            created_at?: string;
+            updated_at?: string;
+          };
+          Update: {
+            id?: string;
+            name?: string;
+            code?: string | null;
+            location?: string | null;
+            notes?: string | null;
+            active?: boolean;
+            foreman_user_id?: string | null;
+            created_at?: string;
+            updated_at?: string;
+          };
+          Relationships: [];
+        };
+        manager_project_assignments: {
+          Row: {
+            id: string;
+            manager_user_id: string;
+            project_id: string;
+            assigned_by: string | null;
+            created_at: string;
+          };
+          Insert: {
+            id?: string;
+            manager_user_id: string;
+            project_id: string;
+            assigned_by?: string | null;
+            created_at?: string;
+          };
+          Update: {
+            id?: string;
+            manager_user_id?: string;
+            project_id?: string;
+            assigned_by?: string | null;
+            created_at?: string;
+          };
+          Relationships: [];
         };
         Relationships: [
           {

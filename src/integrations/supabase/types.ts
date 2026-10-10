@@ -21,6 +21,8 @@ type PayrollBatchRow = {
   month: string;
   site: string;
   foreman: string;
+  project_id: string | null;
+  foreman_user_id: string | null;
   status: string;
   approved_by: string | null;
   approved_at: string | null;
@@ -36,6 +38,7 @@ type PayrollLineRow = {
   employee_id: number;
   month: string;
   foreman: string;
+  foreman_user_id: string | null;
   hours: number;
   rate: number;
   food_deduction: number;
@@ -63,6 +66,8 @@ type Timesheet = {
   employee_id: number;
   site: string;
   foreman: string;
+  project_id: string | null;
+  foreman_user_id: string | null;
   work_date: string;
   in_time: string | null;
   out_time: string | null;
@@ -80,6 +85,7 @@ type SiteAllocation = {
   employee_id: number;
   month: string;
   site: string;
+  project_id: string | null;
   foreman: string;
   regular_hours: number;
   overtime_hours: number;
@@ -101,7 +107,14 @@ type AdvanceTransaction = {
   notes: string | null;
   created_at: string;
 };
-type UserRole = { user_id: string; email: string | null; role: string; created_at: string };
+type UserRole = {
+  user_id: string;
+  email: string | null;
+  full_name: string | null;
+  role: string;
+  is_active: boolean;
+  created_at: string;
+};
 type AuditLog = {
   id: string;
   table_name: string;
@@ -126,6 +139,8 @@ type SiteAssignment = {
   employee_id: number;
   site: string;
   foreman: string;
+  project_id: string | null;
+  foreman_user_id: string | null;
   effective_from: string;
   effective_to: string | null;
   created_by: string | null;
@@ -137,12 +152,33 @@ type TransferRequest = {
   from_site: string | null;
   to_site: string;
   to_foreman: string;
+  from_project_id: string | null;
+  to_project_id: string | null;
+  to_foreman_user_id: string | null;
   effective_on: string;
   reason: string;
   status: string;
   requested_by: string | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
+  created_at: string;
+};
+type Project = {
+  id: string;
+  name: string;
+  code: string | null;
+  location: string | null;
+  notes: string | null;
+  active: boolean;
+  foreman_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+type ManagerProjectAssignment = {
+  id: string;
+  manager_user_id: string;
+  project_id: string;
+  assigned_by: string | null;
   created_at: string;
 };
 type LeaveType = {
@@ -182,6 +218,11 @@ export type Database = {
       >;
       advance_transactions: TableShape<AdvanceTransaction, "employee_id" | "date" | "amount">;
       users: TableShape<UserRole, "user_id" | "role">;
+      projects: TableShape<Project, "name">;
+      manager_project_assignments: TableShape<
+        ManagerProjectAssignment,
+        "manager_user_id" | "project_id"
+      >;
       audit_logs: TableShape<AuditLog, "table_name" | "operation">;
       employee_salary_history: TableShape<
         SalaryHistory,
@@ -217,6 +258,13 @@ export type Database = {
         Returns: Array<{ employee_id: number; balance: number }>;
       };
       has_payroll_role: { Args: { required_roles: string[] }; Returns: boolean };
+      can_access_project: { Args: { target_project_id: string }; Returns: boolean };
+      can_access_employee: { Args: { target_employee_id: number }; Returns: boolean };
+      can_access_employee_project: {
+        Args: { target_employee_id: number; target_project_id: string };
+        Returns: boolean;
+      };
+      can_access_payroll_batch: { Args: { target_batch_id: string }; Returns: boolean };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
