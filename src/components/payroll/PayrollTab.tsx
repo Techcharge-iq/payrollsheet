@@ -269,7 +269,17 @@ function EmployeeSearchSelect({ employees, locked, value, onPick }: EmployeeSear
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onBlur={() =>
+          setTimeout(() => {
+            const activeElement = document.activeElement;
+            if (
+              !boxRef.current?.contains(activeElement) &&
+              !listRef.current?.contains(activeElement)
+            ) {
+              setOpen(false);
+            }
+          }, 150)
+        }
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") {
             e.preventDefault();

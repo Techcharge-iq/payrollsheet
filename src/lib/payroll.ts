@@ -98,6 +98,12 @@ export function monthLabel(m: string) {
   });
 }
 
+export function nextPayrollMonth(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const next = new Date(year!, monthNumber!, 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export function toNum(v: unknown): number {
   const n = parseFloat(String(v));
   return Number.isFinite(n) ? n : 0;
@@ -325,6 +331,9 @@ export function rowTotals(rows: HistoryRow[]) {
     prevAdv: sum((r) => toNum(r.prev_advance)),
     newAdv: sum((r) => toNum(r.new_advance)),
     otherDeduct: sum((r) => toNum(r.other_deduction)),
+    deductions: sum(
+      (r) => toNum(r.food_deduction) + toNum(r.prev_advance) + toNum(r.other_deduction),
+    ),
     net: sum((r) => toNum(r.net_salary)),
     paid: sum((r) => toNum(r.paid)),
     balance: sum(lineBalance),

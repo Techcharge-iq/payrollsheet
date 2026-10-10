@@ -2,14 +2,17 @@ import { X, Save, Pencil } from "lucide-react";
 import {
   STATUSES,
   TRADES,
+  advanceCarryForward,
+  advanceOutstanding,
   employeeRows,
   fmt,
   lineBalance,
   lineGross,
   monthLabel,
-  outstandingAdvance,
+  nextPayrollMonth,
   rowTotals,
   toNum,
+  type AdvanceTx,
   type Employee,
   type EmployeeStatus,
   type PayrollBatch,
@@ -32,6 +35,7 @@ interface Props {
   mode: ModalMode;
   form: EmployeeForm;
   batches: PayrollBatch[];
+  advances: AdvanceTx[];
   onChange: (field: keyof EmployeeForm, value: string) => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -42,6 +46,7 @@ export function EmployeeModal({
   mode,
   form,
   batches,
+  advances,
   onChange,
   onClose,
   onSubmit,
@@ -52,7 +57,7 @@ export function EmployeeModal({
   const titles = { new: "New Employee", view: "Employee Details", edit: "Edit Employee" };
   const rows = form.id ? employeeRows(batches, form.id) : [];
   const totals = rowTotals(rows);
-  const outstanding = form.id ? outstandingAdvance(form.id, batches) : 0;
+  const outstanding = form.id ? advanceOutstanding(form.id, batches, advances) : 0;
 
   const ro = readOnly ? " bg-navy-soft/60 text-slate-600" : "";
 
@@ -164,12 +169,17 @@ export function EmployeeModal({
 
           {readOnly && (
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                 {[
                   { label: "Total hours", value: fmt(totals.hours) },
-                  { label: "Total net salary", value: fmt(totals.net) },
+                  { label: "Total gross salary", value: fmt(totals.gross) },
+                  { label: "Food deductions", value: fmt(totals.food) },
+                  { label: "Previous advance deductions", value: fmt(totals.prevAdv) },
+                  { label: "New advances", value: fmt(totals.newAdv) },
+                  { label: "Other deductions", value: fmt(totals.otherDeduct) },
                   { label: "Total paid", value: fmt(totals.paid) },
-                  { label: "Outstanding balance", value: fmt(totals.balance) },
+                  { label: "Salary balance", value: fmt(totals.balance) },
+                  { label: "Outstanding advance", value: fmt(outstanding) },
                 ].map((s) => (
                   <div
                     key={s.label}
@@ -200,6 +210,7 @@ export function EmployeeModal({
                         <th className="px-3 py-2 text-right">Food</th>
                         <th className="px-3 py-2 text-right">Prev adv.</th>
                         <th className="px-3 py-2 text-right">New adv.</th>
+                        <th className="px-3 py-2 text-right">Outstanding adv.</th>
                         <th className="px-3 py-2 text-right">Other ded.</th>
                         <th className="px-3 py-2 text-right">Net</th>
                         <th className="px-3 py-2 text-right">Paid</th>
@@ -209,7 +220,7 @@ export function EmployeeModal({
                     <tbody>
                       {rows.length === 0 ? (
                         <tr>
-                          <td colSpan={12} className="px-3 py-6 text-center text-slate-400">
+                          <td colSpan={13} className="px-3 py-6 text-center text-slate-400">
                             No payroll recorded for this employee yet.
                           </td>
                         </tr>
@@ -234,7 +245,19 @@ export function EmployeeModal({
                             <td className="px-3 py-2 text-right text-warn">
                               {fmt(toNum(r.prev_advance))}
                             </td>
-                            <td className="px-3 py-2 text-right"><NewAdvanceValue value={r.new_advance} /></td>
+                            <td className="px-3 py-2 text-right">
+                              <NewAdvanceValue value={r.new_advance} />
+                            </td>
+                            <td className="px-3 py-2 text-right text-warn">
+                              {fmt(
+                                advanceCarryForward(
+                                  form.id!,
+                                  nextPayrollMonth(r.month),
+                                  batches,
+                                  advances,
+                                ),
+                              )}
+                            </td>
                             <td className="px-3 py-2 text-right text-danger">
                               {fmt(toNum(r.other_deduction))}
                             </td>
