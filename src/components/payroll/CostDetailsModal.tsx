@@ -215,7 +215,7 @@ export function CostDetailsModal({ open, onClose, employees, month = "", notify 
                       ? "Loading site allocations…"
                       : allocationsQuery.error
                         ? `Could not load site allocations: ${allocationsQuery.error.message}`
-                        : "No verified attendance-based allocations for this month."}
+                        : "No payroll allocations for this month."}
                   </td>
                 </tr>
               ) : (

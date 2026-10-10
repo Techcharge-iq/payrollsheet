@@ -105,8 +105,8 @@ export function CostTab({ employees, notify }: Props) {
         </button>
         <p className="w-full text-xs text-muted-foreground lg:w-auto">
           Gross labour cost is allocated by actual attendance hours. Advances and employee
-          deductions are excluded; historical payroll without verified attendance allocation is not
-          estimated.
+          deductions are excluded; historical payroll without attendance is estimated at its saved
+          batch site.
         </p>
       </div>
 

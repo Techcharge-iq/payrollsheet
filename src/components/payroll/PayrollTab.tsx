@@ -362,6 +362,19 @@ function effectiveRateOnDate(
     )[0]?.hourly_rate;
 }
 
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return fallback;
+}
+
 const emptyLine = (): PayrollLine => ({
   employee_id: "",
   foreman: "",
@@ -513,9 +526,11 @@ export function PayrollTab({
         .eq("singleton", true)
         .maybeSingle();
       if (error && !isMissingPayrollSettingsError(error)) throw error;
-      return (data as { overtime_multiplier: number | null } | null) ?? {
-        overtime_multiplier: null,
-      };
+      return (
+        (data as { overtime_multiplier: number | null } | null) ?? {
+          overtime_multiplier: null,
+        }
+      );
     },
   });
   const payrollPolicy = useMemo(
@@ -925,7 +940,7 @@ export function PayrollTab({
           hours,
           rate: values["rate"]?.trim()
             ? rate
-            : (effectiveRateForMonth(employee.id, month, salaryHistory) ?? ""),
+            : (effectiveRateForMonth(employee.id, month, salaryHistory) ?? employee.hourly_rate),
           food_deduction: food,
           prev_advance:
             values["previousadvance"] || values["prevadvance"] || values["prevadv"]
@@ -1040,7 +1055,7 @@ export function PayrollTab({
     const emp = employees.find((e) => String(e.id) === value);
     setLine(idx, {
       employee_id: value ? Number(value) : "",
-      rate: emp ? (effectiveRateForMonth(emp.id, month, salaryHistory) ?? "") : "",
+      rate: emp ? (effectiveRateForMonth(emp.id, month, salaryHistory) ?? emp.hourly_rate) : "",
       prev_advance: emp ? carryForward(emp.id) : "",
     });
   };
@@ -1066,7 +1081,7 @@ export function PayrollTab({
       setDraft(null);
       setImportErrors([]);
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "Could not save payroll batch.");
+      setSubmitError(errorMessage(error, "Could not save payroll batch."));
     }
   };
 

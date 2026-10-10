@@ -15,7 +15,7 @@ interface MockState {
   employee_salary_history: Array<Record<string, unknown>>;
 }
 
-async function mockPayrollBackend(page: Page, role: "admin" | "hr") {
+async function mockPayrollBackend(page: Page, role: "admin" | "hr", failPayrollLineSave = false) {
   const state: MockState = {
     employees: [
       {
@@ -95,6 +95,18 @@ async function mockPayrollBackend(page: Page, role: "admin" | "hr") {
       }
 
       if (method === "POST") {
+        if (table === "payroll_lines" && failPayrollLineSave) {
+          await route.fulfill({
+            status: 400,
+            json: {
+              code: "23514",
+              message: "Payroll line violates a database constraint.",
+              details: "Check the payroll line values.",
+              hint: null,
+            },
+          });
+          return;
+        }
         const requestBody = request.postDataJSON() as
           Record<string, unknown> | Array<Record<string, unknown>>;
         const rows = Array.isArray(requestBody) ? requestBody : [requestBody];
@@ -309,6 +321,7 @@ test("overview uses the available desktop width and offers immediate actions", a
 
 test("admin can create, submit, and approve a payroll batch", async ({ page }) => {
   const backend = await mockPayrollBackend(page, "admin");
+  backend.state.employee_salary_history.splice(0);
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.goto("/");
   await expect(page.getByText("Syncing payroll data…")).toBeHidden({ timeout: 20_000 });
@@ -324,6 +337,7 @@ test("admin can create, submit, and approve a payroll batch", async ({ page }) =
     .first()
     .click();
   const row = dialog.locator("tbody tr").first();
+  await expect(row.locator('input[type="number"]').nth(1)).toHaveValue("3");
   await row.locator('input[type="number"]').first().fill("160");
   await dialog.getByRole("button", { name: "Save batch" }).click();
 
@@ -338,6 +352,77 @@ test("admin can create, submit, and approve a payroll batch", async ({ page }) =
   await expect(batchCard).toContainText("APPROVED");
   expect(backend.state.payroll_batches[0]?.["status"]).toBe("APPROVED");
   expect(backend.reads.get("payroll_batches")).toBe(1);
+});
+
+test("payroll save errors include the database message", async ({ page }) => {
+  await mockPayrollBackend(page, "admin", true);
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.goto("/");
+  await expect(page.getByText("Syncing payroll data…")).toBeHidden({ timeout: 20_000 });
+  await openTab(page, "Monthly Payroll", false);
+  await page.getByRole("button", { name: "New payroll batch" }).click();
+
+  const dialog = page.getByRole("dialog");
+  await dialog.getByPlaceholder("Site / project").fill("North Campus");
+  await dialog.getByPlaceholder("Search name, trade or ID…").first().fill("Asha");
+  await page
+    .getByRole("button", { name: /Asha Khan/ })
+    .first()
+    .click();
+  await dialog.locator("tbody tr").first().locator('input[type="number"]').first().fill("160");
+  await dialog.getByRole("button", { name: "Save batch" }).click();
+
+  await expect(dialog.getByText("Payroll line violates a database constraint.")).toBeVisible();
+});
+
+test("legacy cost allocations appear for August and September", async ({ page }) => {
+  const backend = await mockPayrollBackend(page, "admin");
+  backend.state.payroll_site_allocations.push(
+    {
+      id: randomUUID(),
+      payroll_line_id: randomUUID(),
+      employee_id: 1,
+      month: "2026-08",
+      site: "North Campus",
+      foreman: "Samir",
+      regular_hours: 100,
+      overtime_hours: 0,
+      allocated_regular_pay: 300,
+      allocated_overtime_pay: 0,
+      allocated_allowances: 0,
+      allocated_gross_cost: 300,
+      allocation_basis: "LEGACY_ESTIMATED",
+      calculation_version: null,
+      created_at: timestamp,
+    },
+    {
+      id: randomUUID(),
+      payroll_line_id: randomUUID(),
+      employee_id: 1,
+      month: "2026-09",
+      site: "Remote Site",
+      foreman: "Samir",
+      regular_hours: 100,
+      overtime_hours: 0,
+      allocated_regular_pay: 300,
+      allocated_overtime_pay: 0,
+      allocated_allowances: 0,
+      allocated_gross_cost: 300,
+      allocation_basis: "LEGACY_ESTIMATED",
+      calculation_version: null,
+      created_at: timestamp,
+    },
+  );
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.goto("/");
+  await expect(page.getByText("Syncing payroll data…")).toBeHidden({ timeout: 20_000 });
+  await openTab(page, "Cost Allocation", false);
+
+  const monthFilter = page.getByLabel("Payroll month");
+  await monthFilter.fill("2026-08");
+  await expect(page.getByText("North Campus", { exact: true })).toBeVisible();
+  await monthFilter.fill("2026-09");
+  await expect(page.getByText("Remote Site", { exact: true })).toBeVisible();
 });
 
 test("admin can open a finalized payroll batch for editing", async ({ page }) => {
