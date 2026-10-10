@@ -10,14 +10,15 @@ import {
 } from "lucide-react";
 import {
   currentPayrollMonth,
+  advanceCarryForward,
+  advanceOutstanding,
   employeeRows,
   fmt,
-  getCarryForward,
   lineBalance,
   monthLabel,
-  outstandingAdvance,
   payrollMonthOptions,
   toNum,
+  type AdvanceTx,
   type Employee,
   type PayrollBatch,
 } from "@/lib/payroll";
@@ -27,13 +28,14 @@ import { btnGold, btnOutline, card, input, select } from "./ui";
 interface Props {
   employees: Employee[];
   batches: PayrollBatch[];
+  advances: AdvanceTx[];
   notify: (msg: string, tone?: "ok" | "warn") => void;
 }
 
 type SortKey = "employee" | "trade" | "foreman";
 type SortDirection = "asc" | "desc";
 
-export function SlipsTab({ employees, batches, notify }: Props) {
+export function SlipsTab({ employees, batches, advances, notify }: Props) {
   const [month, setMonth] = useState(currentPayrollMonth);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -64,10 +66,7 @@ export function SlipsTab({ employees, batches, notify }: Props) {
           });
         });
       });
-    const filtered = out.filter((r) =>
-      r.employee.name.toLowerCase().includes(search.toLowerCase()),
-    );
-    return filtered.sort((a, b) => {
+    return out.sort((a, b) => {
       const aValue =
         sortKey === "employee"
           ? a.employee.name
@@ -86,7 +85,11 @@ export function SlipsTab({ employees, batches, notify }: Props) {
         a.employee.name.localeCompare(b.employee.name)
       );
     });
-  }, [batches, month, empById, search, sortKey, sortDirection]);
+  }, [batches, month, empById, sortKey, sortDirection]);
+  const visibleRows = useMemo(
+    () => rows.filter((row) => row.employee.name.toLowerCase().includes(search.toLowerCase())),
+    [rows, search],
+  );
 
   const sortBy = (key: SortKey) => {
     if (sortKey === key) {
@@ -102,7 +105,8 @@ export function SlipsTab({ employees, batches, notify }: Props) {
     return sortDirection === "asc" ? <ArrowUp size={13} /> : <ArrowDown size={13} />;
   };
 
-  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.employee.id));
+  const allSelected =
+    visibleRows.length > 0 && visibleRows.every((r) => selected.has(r.employee.id));
 
   const toggle = (id: number) =>
     setSelected((prev) => {
@@ -113,7 +117,14 @@ export function SlipsTab({ employees, batches, notify }: Props) {
     });
 
   const toggleAll = () =>
-    setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.employee.id)));
+    setSelected((previous) => {
+      const next = new Set(previous);
+      visibleRows.forEach(({ employee }) => {
+        if (allSelected) next.delete(employee.id);
+        else next.add(employee.id);
+      });
+      return next;
+    });
 
   const download = async () => {
     if (isDownloading) return;
@@ -126,8 +137,8 @@ export function SlipsTab({ employees, batches, notify }: Props) {
       employee,
       month,
       row,
-      carriedForward: getCarryForward(employee.id, month, batches),
-      outstandingAdvance: outstandingAdvance(employee.id, batches),
+      carriedForward: advanceCarryForward(employee.id, month, batches, advances),
+      outstandingAdvance: advanceOutstanding(employee.id, batches, advances),
     }));
     try {
       setIsDownloading(true);
@@ -184,7 +195,7 @@ export function SlipsTab({ employees, batches, notify }: Props) {
             className={input + " pl-9"}
           />
         </div>
-        <button onClick={toggleAll} disabled={!rows.length} className={btnOutline}>
+        <button onClick={toggleAll} disabled={!visibleRows.length} className={btnOutline}>
           {allSelected ? <CheckSquare size={15} /> : <Square size={15} />}
           {allSelected ? "Clear all" : "Select all"}
         </button>
@@ -236,14 +247,16 @@ export function SlipsTab({ employees, batches, notify }: Props) {
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
+              {visibleRows.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-4 py-10 text-center text-slate-400">
-                    No payroll lines for {monthLabel(month)}.
+                    {rows.length
+                      ? "No employees match this search."
+                      : `No payroll lines for ${monthLabel(month)}.`}
                   </td>
                 </tr>
               ) : (
-                rows.map(({ employee, row }) => {
+                visibleRows.map(({ employee, row }) => {
                   const checked = selected.has(employee.id);
                   return (
                     <tr

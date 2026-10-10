@@ -787,7 +787,12 @@ function Dashboard({
               <HistoryTab employees={employees} batches={batches} advances={advances} />
             )}
             {tab === "slips" && (
-              <SlipsTab employees={employees} batches={batches} notify={notify} />
+              <SlipsTab
+                employees={employees}
+                batches={batches}
+                advances={advances}
+                notify={notify}
+              />
             )}
             {tab === "cost" && <CostTab employees={employees} notify={notify} />}
             {tab === "wps" && <WpsExportTab employees={employees} role={role} />}
@@ -840,6 +845,7 @@ function Dashboard({
         mode={mode}
         form={form}
         batches={batches}
+        advances={advances}
         onChange={(field, value) => setForm((f) => ({ ...f, [field]: value as EmployeeStatus }))}
         onClose={() => setMode(null)}
         onSubmit={submitEmployee}

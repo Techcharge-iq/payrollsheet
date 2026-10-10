@@ -82,7 +82,7 @@ async function mockPayrollBackend(page: Page, role: "admin" | "hr", failPayrollL
     const method = request.method();
 
     if (table === "users" && method === "GET") {
-      await route.fulfill({ json: { role } });
+      await route.fulfill({ json: { role, is_active: true } });
       return;
     }
 
@@ -354,6 +354,66 @@ test("admin can create, submit, and approve a payroll batch", async ({ page }) =
   expect(backend.reads.get("payroll_batches")).toBe(1);
 });
 
+test("salary slip selection persists when filtering employees", async ({ page }) => {
+  const backend = await mockPayrollBackend(page, "admin");
+  const month = new Date().toISOString().slice(0, 7);
+  backend.state.employees.push({
+    id: 2,
+    name: "Bilal Noor",
+    trade: "HELPER",
+    id_number: "E-002",
+    hourly_rate: 3,
+    status: "Active",
+    created_at: timestamp,
+  });
+  const batchId = randomUUID();
+  backend.state.payroll_batches.push({
+    id: batchId,
+    month,
+    site: "North Campus",
+    foreman: "Samir",
+    status: "DRAFT",
+  });
+  backend.state.payroll_lines.push(
+    {
+      id: randomUUID(),
+      batch_id: batchId,
+      month,
+      employee_id: 1,
+      hours: 100,
+      rate: 3,
+      net_salary: 300,
+      paid: 0,
+    },
+    {
+      id: randomUUID(),
+      batch_id: batchId,
+      month,
+      employee_id: 2,
+      hours: 100,
+      rate: 3,
+      net_salary: 300,
+      paid: 0,
+    },
+  );
+
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.goto("/");
+  await expect(page.getByText("Syncing payroll data…")).toBeHidden({ timeout: 20_000 });
+  await openTab(page, "Salary Slips", false);
+
+  const search = page.getByPlaceholder("Search employee…");
+  await search.fill("Asha");
+  await page.getByRole("row").filter({ hasText: "Asha Khan" }).click();
+  await search.fill("Bilal");
+  await page.getByRole("row").filter({ hasText: "Bilal Noor" }).click();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: /Download 2 slips/ }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^Salary Slips - .*\.zip$/);
+});
+
 test("payroll save errors include the database message", async ({ page }) => {
   await mockPayrollBackend(page, "admin", true);
   await page.setViewportSize({ width: 1440, height: 960 });
@@ -420,9 +480,9 @@ test("legacy cost allocations appear for August and September", async ({ page })
 
   const monthFilter = page.getByLabel("Payroll month");
   await monthFilter.fill("2026-08");
-  await expect(page.getByText("North Campus", { exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "North Campus" })).toBeVisible();
   await monthFilter.fill("2026-09");
-  await expect(page.getByText("Remote Site", { exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Remote Site" })).toBeVisible();
 });
 
 test("admin can open a finalized payroll batch for editing", async ({ page }) => {

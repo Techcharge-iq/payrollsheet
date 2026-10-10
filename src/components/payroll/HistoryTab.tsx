@@ -8,6 +8,7 @@ import {
   monthLabel,
   advanceOutstanding,
   advanceCarryForward,
+  nextPayrollMonth,
   type AdvanceTx,
   rowTotals,
   toNum,
@@ -34,6 +35,8 @@ export function HistoryTab({ employees, batches, advances }: Props) {
   );
   const totals = rowTotals(rows);
   const outstanding = employee ? advanceOutstanding(employee.id, batches, advances) : 0;
+  const outstandingAfterMonth = (month: string) =>
+    employee ? advanceCarryForward(employee.id, nextPayrollMonth(month), batches, advances) : 0;
   const empAdvances = employee
     ? advances
         .filter((a) => String(a.employee_id) === String(employee.id))
@@ -88,15 +91,20 @@ export function HistoryTab({ employees, batches, advances }: Props) {
       {employee && (
         <>
           <section
-            className="mobile-metric-grid grid grid-cols-2 gap-3 lg:grid-cols-5"
+            className="mobile-metric-grid grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
             aria-label={`${employee.name} payroll totals`}
           >
             {[
               { label: "Months recorded", value: String(rows.length) },
               { label: "Total hours", value: fmt(totals.hours) },
               { label: "Total gross", value: fmt(totals.gross) },
+              { label: "Food deductions", value: fmt(totals.food) },
+              { label: "Previous advance deductions", value: fmt(totals.prevAdv) },
+              { label: "New advances", value: fmt(totals.newAdv) },
+              { label: "Other deductions", value: fmt(totals.otherDeduct) },
               { label: "Total paid", value: fmt(totals.paid) },
               { label: "Balance due", value: fmt(totals.balance) },
+              { label: "Outstanding advance", value: fmt(outstanding) },
             ].map((s) => (
               <div
                 key={s.label}
@@ -129,6 +137,7 @@ export function HistoryTab({ employees, batches, advances }: Props) {
                     <th className="px-3 py-3 text-right">Food</th>
                     <th className="px-3 py-3 text-right">Prev adv.</th>
                     <th className="px-3 py-3 text-right">New adv.</th>
+                    <th className="px-3 py-3 text-right">Outstanding adv.</th>
                     <th className="px-3 py-3 text-right">Other ded.</th>
                     <th className="px-3 py-3 text-right">Net</th>
                     <th className="px-3 py-3 text-right">Paid</th>
@@ -139,7 +148,7 @@ export function HistoryTab({ employees, batches, advances }: Props) {
                 <tbody>
                   {rows.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="px-3 py-8 text-center text-slate-400">
+                      <td colSpan={14} className="px-3 py-8 text-center text-slate-400">
                         No payroll records for this employee yet.
                       </td>
                     </tr>
@@ -166,7 +175,12 @@ export function HistoryTab({ employees, batches, advances }: Props) {
                         <td className="px-3 py-2.5 text-right text-warn">
                           {fmt(toNum(r.prev_advance))}
                         </td>
-                        <td className="px-3 py-2.5 text-right"><NewAdvanceValue value={r.new_advance} /></td>
+                        <td className="px-3 py-2.5 text-right">
+                          <NewAdvanceValue value={r.new_advance} />
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-warn">
+                          {fmt(outstandingAfterMonth(r.month))}
+                        </td>
                         <td className="px-3 py-2.5 text-right text-danger">
                           {fmt(toNum(r.other_deduction))}
                         </td>
@@ -216,6 +230,11 @@ export function HistoryTab({ employees, batches, advances }: Props) {
                       <td className="px-3 py-2.5 text-right">{fmt(totals.food)}</td>
                       <td className="px-3 py-2.5 text-right">{fmt(totals.prevAdv)}</td>
                       <td className="px-3 py-2.5 text-right">{fmt(totals.newAdv)}</td>
+                      <td className="px-3 py-2.5 text-right text-warn">
+                        {rows.length
+                          ? fmt(outstandingAfterMonth(rows[rows.length - 1]!.month))
+                          : "—"}
+                      </td>
                       <td className="px-3 py-2.5 text-right">{fmt(totals.otherDeduct)}</td>
                       <td className="px-3 py-2.5 text-right text-money">{fmt(totals.net)}</td>
                       <td className="px-3 py-2.5 text-right">{fmt(totals.paid)}</td>
@@ -264,7 +283,7 @@ export function HistoryTab({ employees, batches, advances }: Props) {
                           {fmt(
                             advanceCarryForward(
                               employee.id,
-                              nextMonthOf(a.date),
+                              nextPayrollMonth(a.date.slice(0, 7)),
                               batches,
                               advances,
                             ),
@@ -281,12 +300,4 @@ export function HistoryTab({ employees, batches, advances }: Props) {
       )}
     </div>
   );
-}
-
-/** First day-month after the month of `date`, used for carry-forward display. */
-function nextMonthOf(date: string) {
-  const y = Number(date.slice(0, 4));
-  const m = Number(date.slice(5, 7));
-  const d = new Date(y, m, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
