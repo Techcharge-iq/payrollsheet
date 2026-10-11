@@ -74,14 +74,8 @@ export const saveManagedUser = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const input = data;
 
-    if (input.role === "manager" && input.projectIds.length === 0) {
-      throw new Error("Assign a manager to at least one project.");
-    }
     if (input.role !== "manager" && input.projectIds.length > 0) {
       throw new Error("Only managers can have manager project assignments.");
-    }
-    if (input.role === "foreman" && !input.foremanProjectId) {
-      throw new Error("Assign a foreman to a project.");
     }
     if (input.password && input.password.length < 8) {
       throw new Error("A password must contain at least 8 characters.");
@@ -223,6 +217,9 @@ export const saveManagedUser = createServerFn({ method: "POST" })
       (project) => project.foreman_user_id === managedUserId,
     );
     for (const project of oldForemanProjects) {
+      if (input.role === "foreman" && input.isActive && !input.foremanProjectId) {
+        continue;
+      }
       if (project.id === input.foremanProjectId && input.role === "foreman" && input.isActive) {
         continue;
       }

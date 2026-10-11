@@ -237,8 +237,8 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
               <UserRound size={18} /> User accounts
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Set a password to create an account immediately, or leave it blank to send an
-              invitation.
+              Create or invite an account first, then assign projects from the project editor. Set a
+              password for immediate access or leave it blank to send an invitation.
             </p>
           </div>
           {userDraft.userId && (
@@ -317,7 +317,7 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
           </label>
           {userDraft.role === "manager" && (
             <fieldset className="space-y-1 text-xs font-semibold text-slate-600 sm:col-span-2">
-              <legend>Assigned projects</legend>
+              <legend>Assigned projects (optional)</legend>
               <div className="max-h-24 space-y-1 overflow-auto rounded-lg border border-slate-300 bg-card p-2">
                 {projects.map((project) => (
                   <label key={project.id} className="flex items-center gap-2">
@@ -349,10 +349,9 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
           )}
           {userDraft.role === "foreman" && (
             <label className="space-y-1 text-xs font-semibold text-slate-600">
-              Assigned project
+              Assigned project (optional)
               <select
                 className={select}
-                required
                 value={userDraft.foremanProjectId}
                 onChange={(event) =>
                   setUserDraft({ ...userDraft, foremanProjectId: event.target.value })
@@ -382,11 +381,7 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
             Active account
           </label>
           <div className="flex items-end">
-            <button
-              type="submit"
-              className={btnPrimary}
-              disabled={saveUser.isPending || !projectsQuery.isSuccess || !foremenQuery.isSuccess}
-            >
+            <button type="submit" className={btnPrimary} disabled={saveUser.isPending}>
               <Check size={15} />
               {saveUser.isPending
                 ? "Saving…"
