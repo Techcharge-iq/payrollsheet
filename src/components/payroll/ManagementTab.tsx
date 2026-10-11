@@ -12,6 +12,7 @@ type Role = ManagedUser["role"];
 interface UserDraft {
   userId: string | null;
   email: string;
+  password: string;
   fullName: string;
   role: Role;
   isActive: boolean;
@@ -32,6 +33,7 @@ interface ProjectDraft {
 const blankUser: UserDraft = {
   userId: null,
   email: "",
+  password: "",
   fullName: "",
   role: "hr",
   isActive: true,
@@ -68,6 +70,9 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
   const queryClient = useQueryClient();
   const [userSearch, setUserSearch] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
+  const [projectStatusFilter, setProjectStatusFilter] = useState<"all" | "active" | "completed">(
+    "all",
+  );
   const [userDraft, setUserDraft] = useState<UserDraft>(blankUser);
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(blankProject);
   const [userMessage, setUserMessage] = useState<{ text: string; error: boolean } | null>(null);
@@ -96,6 +101,7 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
         data: {
           ...(userDraft.userId ? { userId: userDraft.userId } : {}),
           email: userDraft.email,
+          ...(userDraft.password ? { password: userDraft.password } : {}),
           fullName: userDraft.fullName,
           role: userDraft.role,
           isActive: userDraft.isActive,
@@ -111,7 +117,11 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
       ]);
       setUserMessage({
-        text: userDraft.userId ? "User account updated." : "Invitation sent and account created.",
+        text: userDraft.userId
+          ? "User account updated."
+          : userDraft.password
+            ? "User account created. Share the password with the user securely."
+            : "Invitation sent and account created.",
         error: false,
       });
       setUserDraft(blankUser);
@@ -163,20 +173,25 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
   }, [users, userSearch]);
   const filteredProjects = useMemo(() => {
     const query = projectSearch.trim().toLowerCase();
-    return projects.filter(
-      (project) =>
+    return projects.filter((project) => {
+      const matchesStatus =
+        projectStatusFilter === "all" ||
+        (projectStatusFilter === "active" ? project.active : !project.active);
+      const matchesQuery =
         !query ||
         [project.name, project.code, project.location].some((value) =>
           value?.toLowerCase().includes(query),
-        ),
-    );
-  }, [projects, projectSearch]);
+        );
+      return matchesStatus && matchesQuery;
+    });
+  }, [projectStatusFilter, projects, projectSearch]);
 
   const editUser = (user: ManagedUser) => {
     setUserMessage(null);
     setUserDraft({
       userId: user.user_id,
       email: user.email ?? "",
+      password: "",
       fullName: user.full_name ?? "",
       role: user.role,
       isActive: user.is_active,
@@ -222,7 +237,8 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
               <UserRound size={18} /> User accounts
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Invitations are sent securely; passwords are set by the invited user.
+              Set a password to create an account immediately, or leave it blank to send an
+              invitation.
             </p>
           </div>
           {userDraft.userId && (
@@ -262,6 +278,21 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
               onChange={(event) => setUserDraft({ ...userDraft, email: event.target.value })}
             />
           </label>
+          {!userDraft.userId && (
+            <label className="space-y-1 text-xs font-semibold text-slate-600">
+              Password (optional)
+              <input
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                maxLength={72}
+                className={input}
+                value={userDraft.password}
+                onChange={(event) => setUserDraft({ ...userDraft, password: event.target.value })}
+                placeholder="Leave blank to invite"
+              />
+            </label>
+          )}
           <label className="space-y-1 text-xs font-semibold text-slate-600">
             Role
             <select
@@ -288,29 +319,30 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
             <fieldset className="space-y-1 text-xs font-semibold text-slate-600 sm:col-span-2">
               <legend>Assigned projects</legend>
               <div className="max-h-24 space-y-1 overflow-auto rounded-lg border border-slate-300 bg-card p-2">
-                {projects
-                  .filter((project) => project.active)
-                  .map((project) => (
-                    <label key={project.id} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={userDraft.projectIds.includes(project.id)}
-                        onChange={(event) =>
-                          setUserDraft({
-                            ...userDraft,
-                            projectIds: event.target.checked
-                              ? [...userDraft.projectIds, project.id]
-                              : userDraft.projectIds.filter((id) => id !== project.id),
-                          })
-                        }
-                      />
-                      {project.name}
-                    </label>
-                  ))}
-                {!projects.some((project) => project.active) && (
-                  <span className="font-normal text-muted-foreground">
-                    Create an active project first.
-                  </span>
+                {projects.map((project) => (
+                  <label key={project.id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={userDraft.projectIds.includes(project.id)}
+                      onChange={(event) =>
+                        setUserDraft({
+                          ...userDraft,
+                          projectIds: event.target.checked
+                            ? [...userDraft.projectIds, project.id]
+                            : userDraft.projectIds.filter((id) => id !== project.id),
+                        })
+                      }
+                    />
+                    {project.name}
+                    {!project.active && (
+                      <span className="text-[10px] font-normal text-muted-foreground">
+                        (completed)
+                      </span>
+                    )}
+                  </label>
+                ))}
+                {!projects.length && (
+                  <span className="font-normal text-muted-foreground">Create a project first.</span>
                 )}
               </div>
             </fieldset>
@@ -330,12 +362,12 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
                 {projects
                   .filter(
                     (project) =>
-                      project.active &&
-                      (!project.foreman_user_id || project.foreman_user_id === userDraft.userId),
+                      !project.foreman_user_id || project.foreman_user_id === userDraft.userId,
                   )
                   .map((project) => (
                     <option key={project.id} value={project.id}>
                       {project.name}
+                      {project.active ? "" : " (completed)"}
                     </option>
                   ))}
               </select>
@@ -356,7 +388,13 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
               disabled={saveUser.isPending || !projectsQuery.isSuccess || !foremenQuery.isSuccess}
             >
               <Check size={15} />
-              {saveUser.isPending ? "Saving…" : userDraft.userId ? "Save user" : "Invite user"}
+              {saveUser.isPending
+                ? "Saving…"
+                : userDraft.userId
+                  ? "Save user"
+                  : userDraft.password
+                    ? "Create user"
+                    : "Invite user"}
             </button>
           </div>
         </form>
@@ -580,13 +618,27 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-bold text-navy">Projects ({filteredProjects.length})</h3>
-          <input
-            aria-label="Search projects"
-            className={`${input} max-w-xs`}
-            placeholder="Search name, code, or location"
-            value={projectSearch}
-            onChange={(event) => setProjectSearch(event.target.value)}
-          />
+          <div className="flex flex-wrap gap-2">
+            <select
+              aria-label="Filter projects by status"
+              className={`${select} max-w-40`}
+              value={projectStatusFilter}
+              onChange={(event) =>
+                setProjectStatusFilter(event.target.value as typeof projectStatusFilter)
+              }
+            >
+              <option value="all">All statuses</option>
+              <option value="active">Active only</option>
+              <option value="completed">Completed only</option>
+            </select>
+            <input
+              aria-label="Search projects"
+              className={`${input} max-w-xs`}
+              placeholder="Search name, code, or location"
+              value={projectSearch}
+              onChange={(event) => setProjectSearch(event.target.value)}
+            />
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[620px] text-sm">
