@@ -142,7 +142,7 @@ export function useBatches(month?: string, enabled = true) {
           deductions: l.deductions,
           advance_recovery: l.advance_recovery,
           net_pay: l.net_pay,
-          rate_segments: (l.rate_segments ?? null) as PayrollLine["rate_segments"],
+          rate_segments: ((l as { rate_segments?: unknown }).rate_segments ?? null) as PayrollLine["rate_segments"],
         };
         (byBatch[l.batch_id] ??= []).push(line);
       });
@@ -349,7 +349,7 @@ export function useSaveBatch(canDelete = false) {
       if (rows.length) {
         const { data, error } = await supabase
           .from("payroll_lines")
-          .upsert(rows, { onConflict: "id" })
+          .upsert(rows as never, { onConflict: "id" })
           .select("*");
         if (error) throw error;
         await writeCachedRows("payroll_lines", data ?? []);

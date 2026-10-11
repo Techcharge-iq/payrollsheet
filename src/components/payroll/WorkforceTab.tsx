@@ -28,6 +28,7 @@ interface Assignment {
   employee_id: number;
   site: string;
   foreman: string;
+  project_id?: string | null;
   effective_from: string;
   effective_to: string | null;
 }
@@ -267,15 +268,21 @@ export function WorkforceTab({
   const saveTransfer = useMutation({
     mutationFn: async () => {
       if (!employeeId || !site.trim() || !transferDate)
-        throw new Error("Choose an employee, destination site, and effective date.");
+        throw new Error("Choose an employee, site, and effective date.");
+      const empId = Number(employeeId);
+      const project = (projects.data ?? []).find((p) => p.name === site);
+      if (!project) throw new Error("Choose an active site.");
       const current = (assignments.data ?? []).find(
-        (a) => a.employee_id === Number(employeeId) && !a.effective_to,
+        (a) => a.employee_id === empId && !a.effective_to,
       );
       const { error } = await dbAny.from("employee_transfer_requests").insert({
-        employee_id: Number(employeeId),
+        employee_id: empId,
         from_site: current?.site ?? null,
-        to_site: site.trim(),
+        from_project_id: current?.project_id ?? null,
+        to_site: project.name,
         to_foreman: foreman.trim(),
+        to_project_id: project.id,
+        to_foreman_user_id: project.foreman_user_id,
         effective_on: transferDate,
         reason: transferReason.trim(),
       });
@@ -283,7 +290,6 @@ export function WorkforceTab({
     },
     onSuccess: () => {
       void refresh("employee_transfer_requests");
-      setSite("");
       setForeman("");
       setTransferReason("");
       notify("Transfer request submitted for review.");
@@ -538,7 +544,109 @@ export function WorkforceTab({
       <section className={card + " space-y-4 p-4"}>
         <h3 className="flex items-center gap-2 font-bold text-navy">
           <ArrowLeftRight size={17} />
-          Site assignments & transfer requests
+          Add employee to site / move to another site
+        </h3>
+        <p className="text-xs text-muted-foreground">
+          Current site:{" "}
+          <b>
+            {employeeId
+              ? (currentAssignment.find((a) => a.employee_id === Number(employeeId))?.site ??
+                "Not assigned")
+              : "Select an employee"}
+          </b>
+        </p>
+        <div className="grid gap-3 sm:grid-cols-5">
+          <select
+            className={select}
+            value={employeeId}
+            onChange={(e) => setEmployeeId(e.target.value)}
+          >
+            <option value="">Select employee</option>
+            {employees.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.name} · {e.id_number || e.trade}
+              </option>
+            ))}
+          </select>
+          <select className={select} value={site} onChange={(e) => setSite(e.target.value)}>
+            <option value="">Select site / project</option>
+            {(projects.data ?? []).map((p) => (
+              <option key={p.id} value={p.name}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <input
+            className={input}
+            placeholder="Foreman"
+            value={foreman}
+            onChange={(e) => setForeman(e.target.value)}
+          />
+          <input
+            className={input}
+            type="date"
+            value={transferDate}
+            onChange={(e) => setTransferDate(e.target.value)}
+          />
+          <button
+            className={btnGold}
+            disabled={saveTransfer.isPending}
+            onClick={() => saveTransfer.mutate()}
+          >
+            <Plus size={15} />
+            Request transfer
+          </button>
+        </div>
+        <input
+          className={input}
+          placeholder="Reason (optional)"
+          value={transferReason}
+          onChange={(e) => setTransferReason(e.target.value)}
+        />
+        <div className="max-h-56 space-y-2 overflow-auto">
+          {(transfers.data ?? []).map((request) => (
+            <div
+              key={request.id}
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3 text-xs"
+            >
+              <b className="text-navy">
+                {employees.find((employee) => employee.id === request.employee_id)?.name ??
+                  `Employee ${request.employee_id}`}
+              </b>
+              <span>
+                {request.from_site || "Unknown"} → {request.to_site}
+              </span>
+              <span>{request.effective_on}</span>
+              <span className="font-bold">{request.status}</span>
+              {isAdmin && request.status === "PENDING" && (
+                <>
+                  <button
+                    className={btnOutline}
+                    onClick={() => reviewTransfer.mutate({ id: request.id, status: "APPROVED" })}
+                  >
+                    <Check size={14} />
+                    Approve
+                  </button>
+                  <button
+                    className={btnOutline}
+                    onClick={() => reviewTransfer.mutate({ id: request.id, status: "REJECTED" })}
+                  >
+                    <X size={14} />
+                    Reject
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+          {!transfers.data?.length && (
+            <p className="text-xs text-muted-foreground">No transfer requests yet.</p>
+          )}
+        </div>
+      </section>
+      <section className={card + " space-y-4 p-4"}>
+        <h3 className="flex items-center gap-2 font-bold text-navy">
+          <ArrowLeftRight size={17} />
+          Site assignment history
         </h3>
         {isAdmin && (
           <div className="space-y-3 rounded-xl border border-gold/40 bg-gold/5 p-4">
@@ -686,78 +794,6 @@ export function WorkforceTab({
               "Unknown")
             : "Select an employee above"}
         </p>
-        <div className="grid gap-3 sm:grid-cols-4">
-          <input
-            className={input}
-            placeholder="Destination site"
-            value={site}
-            onChange={(e) => setSite(e.target.value)}
-          />
-          <input
-            className={input}
-            placeholder="Foreman"
-            value={foreman}
-            onChange={(e) => setForeman(e.target.value)}
-          />
-          <input
-            className={input}
-            type="date"
-            value={transferDate}
-            onChange={(e) => setTransferDate(e.target.value)}
-          />
-          <button
-            className={btnOutline}
-            disabled={saveTransfer.isPending}
-            onClick={() => saveTransfer.mutate()}
-          >
-            <Plus size={15} />
-            Request transfer
-          </button>
-          <input
-            className={input + " sm:col-span-4"}
-            placeholder="Reason (optional)"
-            value={transferReason}
-            onChange={(e) => setTransferReason(e.target.value)}
-          />
-        </div>
-        <div className="max-h-56 space-y-2 overflow-auto">
-          {(transfers.data ?? []).map((r) => (
-            <div
-              key={r.id}
-              className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3 text-xs"
-            >
-              <b className="text-navy">
-                {employees.find((e) => e.id === r.employee_id)?.name ?? `Employee ${r.employee_id}`}
-              </b>
-              <span>
-                {r.from_site || "Unknown"} → {r.to_site}
-              </span>
-              <span>{r.effective_on}</span>
-              <span className="font-bold">{r.status}</span>
-              {isAdmin && r.status === "PENDING" && (
-                <>
-                  <button
-                    className={btnOutline}
-                    onClick={() => reviewTransfer.mutate({ id: r.id, status: "APPROVED" })}
-                  >
-                    <Check size={14} />
-                    Approve
-                  </button>
-                  <button
-                    className={btnOutline}
-                    onClick={() => reviewTransfer.mutate({ id: r.id, status: "REJECTED" })}
-                  >
-                    <X size={14} />
-                    Reject
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
-          {!transfers.data?.length && (
-            <p className="text-xs text-muted-foreground">No transfer requests yet.</p>
-          )}
-        </div>
         <div className="max-h-48 overflow-auto rounded-lg border border-border">
           <table className="w-full text-left text-xs">
             <thead className="bg-navy-soft">

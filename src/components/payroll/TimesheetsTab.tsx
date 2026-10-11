@@ -262,6 +262,7 @@ export function TimesheetsTab({
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [copyPickerOpen, setCopyPickerOpen] = useState(false);
   const [monthlyAttendanceOpen, setMonthlyAttendanceOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [bulkInTime, setBulkInTime] = useState("08:00");
   const [bulkOutTime, setBulkOutTime] = useState("17:00");
   const [bulkBreakHours, setBulkBreakHours] = useState("1");
@@ -1123,7 +1124,10 @@ export function TimesheetsTab({
                 <button
                   key={project.id}
                   type="button"
-                  onClick={() => selectProject(project)}
+                  onClick={() => {
+                    selectProject(project);
+                    setSheetOpen(true);
+                  }}
                   aria-pressed={selected}
                   className={`project-attendance-card rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md ${
                     selected
@@ -1173,6 +1177,36 @@ export function TimesheetsTab({
           </p>
         )}
       </section>
+      {sheetOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Daily timesheet"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/40 backdrop-blur-sm sm:items-center sm:p-4"
+        >
+          <div className="flex max-h-[94vh] w-full max-w-6xl flex-col gap-3 overflow-y-auto rounded-t-2xl bg-background p-3 shadow-2xl sm:rounded-2xl sm:p-5">
+            <header className="sticky top-0 z-10 -mx-3 -mt-3 flex items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:-mt-5 sm:px-5">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                  Daily timesheet · {workDate}
+                </p>
+                <h2 className="truncate font-display text-lg font-bold text-navy">
+                  {site || "Select a project"}
+                  {foreman ? ` · ${foreman}` : ""}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (dirty && !window.confirm("Discard unsaved attendance changes?")) return;
+                  setDirty(false);
+                  setSheetOpen(false);
+                }}
+                className={`${btnOutline} min-h-11 rounded-lg px-4 text-sm`}
+              >
+                <X size={16} /> Close
+              </button>
+            </header>
       <div className={`${card} attendance-batch-toolbar attendance-scroll-reveal`}>
         <label className="attendance-batch-field">
           Attendance date
@@ -1995,6 +2029,9 @@ export function TimesheetsTab({
             </div>
           </section>
         </>
+      )}
+          </div>
+        </div>
       )}
       {monthlyAttendanceOpen && (
         <MonthlyAttendanceDialog
