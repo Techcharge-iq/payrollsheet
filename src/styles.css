@@ -226,6 +226,11 @@
     transform: translateY(0) scale(1);
   }
 
+  [role="dialog"] .attendance-scroll-reveal {
+    opacity: 1;
+    transform: none;
+  }
+
   .attendance-scroll-reveal.is-visible:hover {
     box-shadow: 0 12px 28px oklch(0.29 0.025 245 / 0.1);
   }
