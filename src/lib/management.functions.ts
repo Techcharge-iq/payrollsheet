@@ -4,6 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Json } from "@/integrations/supabase/external-types";
+import type { Database } from "@/integrations/supabase/types";
+import { projectAccessError } from "./project-access";
 
 const roles = ["admin", "hr", "manager", "foreman"] as const;
 
@@ -104,7 +106,12 @@ export const saveManagedUser = createServerFn({ method: "POST" })
       .from("projects")
       .select("id,active,foreman_user_id");
     if (projectError)
-      throw new Error(`Could not validate project assignments: ${projectError.message}`);
+      throw new Error(
+        projectAccessError(
+          new Error(`Could not validate project assignments: ${projectError.message}`),
+          "load",
+        ),
+      );
     const existingProjectIds = new Set((projects ?? []).map((project) => project.id));
     if (input.projectIds.some((projectId) => !existingProjectIds.has(projectId))) {
       throw new Error("Manager assignments must use existing projects.");
@@ -195,9 +202,7 @@ export const saveManagedUser = createServerFn({ method: "POST" })
       .delete()
       .eq("manager_user_id", managedUserId);
     if (managerDeleteError) {
-      throw new Error(
-        `Profile saved, but manager assignments could not be updated: ${managerDeleteError.message}`,
-      );
+      throw new Error(`Profile saved, but ${projectAccessError(managerDeleteError, "save")}`);
     }
     if (input.role === "manager" && input.isActive) {
       const { error } = await supabaseAdmin.from("manager_project_assignments").insert(
@@ -207,10 +212,7 @@ export const saveManagedUser = createServerFn({ method: "POST" })
           assigned_by: context.userId,
         })),
       );
-      if (error)
-        throw new Error(
-          `Profile saved, but manager assignments could not be updated: ${error.message}`,
-        );
+      if (error) throw new Error(`Profile saved, but ${projectAccessError(error, "save")}`);
     }
 
     const oldForemanProjects = (projects ?? []).filter(
@@ -284,7 +286,9 @@ export const saveManagedProject = createServerFn({ method: "POST" })
       .from("projects")
       .select("id,name");
     if (nameError)
-      throw new Error(`Could not check for duplicate project names: ${nameError.message}`);
+      throw new Error(
+        `Could not check for duplicate project names: ${projectAccessError(nameError, "load")}`,
+      );
     if (
       (names ?? []).some(
         (project) =>
@@ -312,7 +316,7 @@ export const saveManagedProject = createServerFn({ method: "POST" })
           .single()
       : supabaseAdmin.from("projects").insert(projectValues).select("*").single();
     const { data: project, error } = await query;
-    if (error) throw new Error(`Could not save the project: ${error.message}`);
+    if (error) throw new Error(`Could not save the project: ${projectAccessError(error, "save")}`);
     await writeAudit(
       supabaseAdmin,
       context,

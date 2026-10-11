@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
 import { dbAny } from "@/integrations/supabase/external-client";
+import { projectAccessError } from "@/lib/project-access";
 import { btnGold, btnOutline, btnPrimary, card, input, select } from "./ui";
 
 interface SalaryRecord {
@@ -132,7 +133,7 @@ export function WorkforceTab({
         .from("employee_site_assignments")
         .select("*")
         .order("effective_from", { ascending: false });
-      if (error) throw error;
+      if (error) throw new Error(projectAccessError(error, "load"));
       return (data ?? []) as Assignment[];
     },
   });
@@ -282,7 +283,7 @@ export function WorkforceTab({
       void refresh("employee_transfer_requests", "employee_site_assignments");
       notify("Transfer request reviewed.");
     },
-    onError: (e) => notify(e.message, "warn"),
+    onError: (e) => notify(projectAccessError(e, "save"), "warn"),
   });
   const saveLeaveType = useMutation({
     mutationFn: async () => {
