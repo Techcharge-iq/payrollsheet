@@ -591,7 +591,9 @@ test("project editing offers active and completed statuses", async ({ page }) =>
   await expect(status.locator("option")).toHaveText(["Active", "Completed"]);
 });
 
-test("admin can set a new-user password and choose a completed project", async ({ page }) => {
+test("admin can create an unassigned foreman account and later choose a completed project", async ({
+  page,
+}) => {
   const backend = await mockPayrollBackend(page, "admin");
   backend.state.projects[1]!.active = false;
   await page.setViewportSize({ width: 1440, height: 960 });
@@ -603,11 +605,13 @@ test("admin can set a new-user password and choose a completed project", async (
   await page.getByLabel("Full name").fill("New Foreman");
   await page.getByLabel("Email address").fill("new-foreman@example.test");
   await page.getByLabel("Password (optional)").fill("SecurePass123");
-  const assignedProject = page.getByLabel("Assigned project");
+  const assignedProject = page.getByLabel("Assigned project (optional)");
   await expect(assignedProject.locator("option")).toHaveText([
     "Choose project",
     "East Yard (completed)",
   ]);
+  await expect(assignedProject).not.toHaveAttribute("required", "");
+  await expect(page.getByRole("button", { name: "Create user" })).toBeEnabled();
   await assignedProject.selectOption("00000000-0000-4000-8000-000000000011");
   await expect(page.getByRole("button", { name: "Create user" })).toBeEnabled();
 

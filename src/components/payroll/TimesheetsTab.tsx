@@ -6,10 +6,12 @@ import {
   Check,
   ChevronDown,
   Copy,
+  MapPin,
   Pencil,
   Plus,
   Search,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
@@ -259,6 +261,7 @@ export function TimesheetsTab({
   const [monthlyAttendanceOpen, setMonthlyAttendanceOpen] = useState(false);
   const [bulkInTime, setBulkInTime] = useState("08:00");
   const [bulkOutTime, setBulkOutTime] = useState("17:00");
+  const [bulkBreakHours, setBulkBreakHours] = useState("1");
   const [visibleColumns, setVisibleColumns] = useState<Record<AttendanceColumn, boolean>>({
     inTime: true,
     outTime: true,
@@ -397,6 +400,11 @@ export function TimesheetsTab({
     [editingKey, selectedEmployees, timesheets],
   );
   const selectedCount = selectedIds.length;
+  const markedCount = timesheets.length;
+  const presentCount = timesheets.filter(
+    (entry) => entry.status === "PRESENT" || entry.status === "HALF_DAY",
+  ).length;
+  const recordedHours = timesheets.reduce((total, entry) => total + Number(entry.total_hours), 0);
   const scheduledHours = (row: AttendanceDraft) =>
     hoursFor({
       ...row,
@@ -658,6 +666,29 @@ export function TimesheetsTab({
     setDirty(true);
   };
 
+  const toggleSelectAllAvailable = () => {
+    const allAvailableSelected =
+      filteredPickerEmployees.length > 0 &&
+      filteredPickerEmployees.every((employee) => selectedIds.includes(employee.id));
+    if (!allAvailableSelected) {
+      selectAllAvailable();
+      return;
+    }
+
+    const existingBatchIds = new Set(
+      timesheets
+        .filter(
+          (entry) => editingKey !== null && batchKey(entry.site, entry.foreman) === editingKey,
+        )
+        .map((entry) => entry.employee_id),
+    );
+    const availableIds = new Set(filteredPickerEmployees.map((employee) => employee.id));
+    setSelectedIds((current) =>
+      current.filter((id) => !availableIds.has(id) || existingBatchIds.has(id)),
+    );
+    setDirty(true);
+  };
+
   const updateAttendance = (employeeId: number, patch: Partial<AttendanceDraft>) => {
     setAttendance((current) => {
       const next = { ...(current[employeeId] ?? defaultAttendance()), ...patch };
@@ -709,6 +740,20 @@ export function TimesheetsTab({
   };
 
   const applySchedule = () => {
+    const breakHours = Number(bulkBreakHours);
+    const [startHour, startMinute] = bulkInTime.split(":").map(Number);
+    const [endHour, endMinute] = bulkOutTime.split(":").map(Number);
+    const shiftHours = (endHour! * 60 + endMinute! - startHour! * 60 - startMinute!) / 60;
+    if (
+      !Number.isFinite(breakHours) ||
+      breakHours < 0 ||
+      !Number.isFinite(shiftHours) ||
+      shiftHours <= 0 ||
+      breakHours >= shiftHours
+    ) {
+      notify("Choose a valid shift and a break shorter than the shift.", "warn");
+      return;
+    }
     setAttendance((current) => {
       const next = { ...current };
       selectedEmployees.forEach((employee) => {
@@ -718,7 +763,7 @@ export function TimesheetsTab({
           status: "PRESENT",
           inTime: bulkInTime,
           outTime: bulkOutTime,
-          breakHours: row.breakHours || "1",
+          breakHours: bulkBreakHours,
         };
         next[employee.id] = {
           ...scheduled,
@@ -824,6 +869,28 @@ export function TimesheetsTab({
         }),
       ),
     );
+    setDirty(false);
+    setEmployeeSearch("");
+    setEmployeePickerOpen(false);
+    setCopyPickerOpen(false);
+  };
+
+  const selectProject = (project: Project) => {
+    if (role === "foreman") {
+      openAssignedProject(project);
+      return;
+    }
+    if (dirty && !confirmDiscard()) return;
+    const assignedForeman = foremanOptions.find(
+      (option) => option.userId === project.foreman_user_id,
+    );
+    setSite(project.name);
+    setSelectedProjectId(project.id);
+    setForeman(assignedForeman?.name ?? "");
+    setSelectedForemanId(assignedForeman?.userId ?? null);
+    setSelectedIds([]);
+    setAttendance({});
+    setEditingKey(null);
     setDirty(false);
     setEmployeeSearch("");
     setEmployeePickerOpen(false);
@@ -989,19 +1056,22 @@ export function TimesheetsTab({
 
   return (
     <section ref={sectionRef} className="space-y-2.5">
-      {role === "foreman" && (
-        <section className={`${card} space-y-3 p-4`}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="font-display text-base font-extrabold text-navy">
-                Your assigned projects
-              </h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Choose a project to see its assigned workers and record today’s attendance.
-              </p>
-            </div>
+      <section className={`${card} space-y-4 p-4 sm:p-5`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-base font-extrabold text-navy">
+              {role === "foreman" ? "Your assigned projects" : "Active projects"}
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {role === "foreman"
+                ? "Choose an assigned project to review its team and record attendance."
+                : "Choose a project to start or update its daily attendance."}
+            </p>
+          </div>
+          <label className="attendance-batch-field">
+            Project status
             <select
-              aria-label="Show assigned projects by status"
+              aria-label="Show projects by status"
               className={`${select} max-w-44`}
               value={projectStatusFilter}
               onChange={(event) =>
@@ -1012,85 +1082,91 @@ export function TimesheetsTab({
               <option value="completed">Completed projects</option>
               <option value="all">All projects</option>
             </select>
+          </label>
+        </div>
+        {projectsQuery.error && (
+          <p role="alert" className="text-sm text-danger">
+            Could not load projects: {projectsQuery.error.message}
+          </p>
+        )}
+        {assignmentsQuery.error && (
+          <p role="alert" className="text-sm text-danger">
+            Could not load project worker assignments: {assignmentsQuery.error.message}
+          </p>
+        )}
+        {projectsQuery.isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading projects…</p>
+        ) : (role === "foreman" ? visibleForemanProjects : visibleProjects).length ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {(role === "foreman" ? visibleForemanProjects : visibleProjects).map((project) => {
+              const roster = (assignmentsQuery.data ?? []).filter(
+                (assignment) =>
+                  assignment.project_id === project.id &&
+                  (role !== "foreman" || assignment.foreman_user_id === currentUserId) &&
+                  assignment.effective_from <= workDate &&
+                  (!assignment.effective_to || assignment.effective_to >= workDate),
+              );
+              const rosterIds = new Set(roster.map((assignment) => assignment.employee_id));
+              const projectEntries = timesheets.filter(
+                (entry) =>
+                  (entry.project_id === project.id || entry.site === project.name) &&
+                  (role !== "foreman" || rosterIds.has(entry.employee_id)),
+              );
+              const selected = selectedProjectId === project.id;
+              return (
+                <button
+                  key={project.id}
+                  type="button"
+                  onClick={() => selectProject(project)}
+                  aria-pressed={selected}
+                  className={`project-attendance-card rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md ${
+                    selected
+                      ? "border-navy bg-navy-soft shadow-sm"
+                      : "border-border bg-card hover:border-navy/40"
+                  }`}
+                >
+                  <span className="flex items-start justify-between gap-2">
+                    <span className="font-display text-base font-bold text-navy">
+                      {project.name}
+                    </span>
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                        project.active
+                          ? "bg-emerald-100 text-emerald-800"
+                          : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {project.active ? "Active" : "Completed"}
+                    </span>
+                  </span>
+                  <span className="mt-2 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                    <MapPin size={13} className="shrink-0" />
+                    {project.location || "Site location not set"}
+                  </span>
+                  <span className="mt-4 flex items-center justify-between gap-2 border-t border-border/70 pt-3 text-xs">
+                    <span className="inline-flex items-center gap-1.5 font-semibold text-slate-600">
+                      <Users size={14} />
+                      {roster.length} assigned
+                    </span>
+                    <span className="font-semibold text-slate-600">
+                      {projectEntries.length} marked today
+                    </span>
+                  </span>
+                  <span className="mt-3 block text-xs font-bold text-navy">
+                    {selected ? "Selected · attendance below" : "Open daily attendance →"}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-          {projectsQuery.error && (
-            <p role="alert" className="text-sm text-danger">
-              Could not load assigned projects: {projectsQuery.error.message}
-            </p>
-          )}
-          {assignmentsQuery.error && (
-            <p role="alert" className="text-sm text-danger">
-              Could not load project worker assignments: {assignmentsQuery.error.message}
-            </p>
-          )}
-          {projectsQuery.isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading your projects…</p>
-          ) : visibleForemanProjects.length ? (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {visibleForemanProjects.map((project) => {
-                const roster = (assignmentsQuery.data ?? []).filter(
-                  (assignment) =>
-                    assignment.project_id === project.id &&
-                    assignment.foreman_user_id === currentUserId &&
-                    assignment.effective_from <= workDate &&
-                    (!assignment.effective_to || assignment.effective_to >= workDate),
-                );
-                const rosterIds = new Set(roster.map((assignment) => assignment.employee_id));
-                const recordedCount = timesheets.filter(
-                  (entry) =>
-                    rosterIds.has(entry.employee_id) &&
-                    (entry.project_id === project.id || entry.site === project.name),
-                ).length;
-                const selected = selectedProjectId === project.id;
-                return (
-                  <button
-                    key={project.id}
-                    type="button"
-                    onClick={() => openAssignedProject(project)}
-                    className={`rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md ${
-                      selected
-                        ? "border-navy bg-navy-soft shadow-sm"
-                        : "border-border bg-card hover:border-navy/40"
-                    }`}
-                  >
-                    <span className="flex items-start justify-between gap-2">
-                      <span className="font-display text-base font-bold text-navy">
-                        {project.name}
-                      </span>
-                      <span
-                        className={`rounded-full px-2 py-1 text-[10px] font-bold ${
-                          project.active
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        {project.active ? "Active" : "Completed"}
-                      </span>
-                    </span>
-                    {project.location && (
-                      <span className="mt-1 block truncate text-xs text-muted-foreground">
-                        {project.location}
-                      </span>
-                    )}
-                    <span className="mt-3 block text-xs font-semibold text-slate-600">
-                      {roster.length} assigned · {recordedCount} marked for {workDate}
-                    </span>
-                    <span className="mt-2 block text-xs font-bold text-navy">
-                      {selected ? "Selected · open attendance below" : "Open daily attendance →"}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="rounded-lg bg-muted/30 p-3 text-sm text-muted-foreground">
-              {assignedProjects.length
-                ? "No assigned projects match this status filter."
-                : "No projects are currently assigned to your foreman account. Ask an administrator to assign a project."}
-            </p>
-          )}
-        </section>
-      )}
+        ) : (
+          <p className="rounded-lg bg-muted/30 p-3 text-sm text-muted-foreground">
+            {role === "foreman" && !assignedProjects.length
+              ? "No projects are currently assigned to your foreman account. Ask an administrator to assign a project."
+              : "No projects match this status filter."}
+          </p>
+        )}
+      </section>
       <div className={`${card} attendance-batch-toolbar attendance-scroll-reveal`}>
         <label className="attendance-batch-field">
           Attendance date
@@ -1125,20 +1201,6 @@ export function TimesheetsTab({
             >
               Use recorded assignment
             </button>
-            <label className="attendance-batch-field">
-              Project status
-              <select
-                className={`${select} rounded-md px-2 py-1 text-xs`}
-                value={projectStatusFilter}
-                onChange={(event) =>
-                  setProjectStatusFilter(event.target.value as typeof projectStatusFilter)
-                }
-              >
-                <option value="active">Active projects</option>
-                <option value="completed">Completed projects</option>
-                <option value="all">All projects</option>
-              </select>
-            </label>
             <label className="attendance-batch-field">
               Site / project
               <select
@@ -1259,6 +1321,23 @@ export function TimesheetsTab({
         </div>
       ) : (
         <>
+          <section className="grid grid-cols-3 gap-2" aria-label="Daily attendance summary">
+            {[
+              { label: "Marked", value: markedCount },
+              { label: "Present", value: presentCount },
+              { label: "Hours", value: recordedHours.toFixed(2) },
+            ].map(({ label, value }) => (
+              <article key={label} className={`${card} px-3 py-2.5`}>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                  {label}
+                </p>
+                <p className="mt-1 font-display text-lg font-extrabold tabular-nums text-navy">
+                  {value}
+                  {label === "Hours" ? " hrs" : ""}
+                </p>
+              </article>
+            ))}
+          </section>
           <div className="space-y-2 attendance-scroll-reveal">
             {editingKey && (
               <p className="px-1 text-xs font-semibold text-navy">Editing saved attendance batch</p>
@@ -1286,130 +1365,147 @@ export function TimesheetsTab({
               </div>
             )}
 
-            <div className="relative w-full max-w-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-full max-w-xs">
+                <button
+                  type="button"
+                  onClick={() => setEmployeePickerOpen((open) => !open)}
+                  aria-expanded={employeePickerOpen}
+                  className={`${input} flex h-8 items-center justify-between rounded-md px-2 py-1 text-left text-xs`}
+                >
+                  <span>
+                    {selectedCount
+                      ? `${selectedCount} employee${selectedCount === 1 ? "" : "s"} selected`
+                      : "Select employees…"}
+                  </span>
+                  <ChevronDown size={16} />
+                </button>
+                {employeePickerOpen && (
+                  <div className="absolute z-30 mt-1 w-full rounded-md border border-border bg-card p-2 shadow-lg">
+                    <div className="relative mb-2">
+                      <Search
+                        size={15}
+                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                      />
+                      <input
+                        autoFocus
+                        value={employeeSearch}
+                        onChange={(event) => setEmployeeSearch(event.target.value)}
+                        placeholder="Find employee by name, trade or ID"
+                        className={`${input} pl-9`}
+                      />
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {activeEmployees
+                        .filter((employee) => {
+                          const query = employeeSearch.trim().toLowerCase();
+                          return (
+                            !query ||
+                            [employee.name, employee.trade, employee.id_number, String(employee.id)]
+                              .join(" ")
+                              .toLowerCase()
+                              .includes(query)
+                          );
+                        })
+                        .map((employee) => {
+                          const checked = selectedIds.includes(employee.id);
+                          const assigned = timesheets.find(
+                            (entry) => entry.employee_id === employee.id,
+                          );
+                          const assignedOutsideBatch =
+                            assigned &&
+                            (!editingKey ||
+                              batchKey(assigned.site, assigned.foreman) !== editingKey);
+                          const lockedInBatch =
+                            checked &&
+                            editingKey !== null &&
+                            assigned &&
+                            batchKey(assigned.site, assigned.foreman) === editingKey;
+                          return (
+                            <label
+                              key={employee.id}
+                              className={`flex min-h-11 items-center gap-3 rounded-lg px-2 py-2 text-sm ${
+                                assignedOutsideBatch
+                                  ? "cursor-not-allowed opacity-50"
+                                  : "cursor-pointer hover:bg-navy-soft"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={Boolean(
+                                  (assignedOutsideBatch && !checked) || lockedInBatch,
+                                )}
+                                onChange={() => toggleEmployee(employee)}
+                                className="h-4 w-4 accent-[var(--navy)]"
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate font-semibold text-navy">
+                                  {employee.name}
+                                </span>
+                                <span className="block text-[11px] text-muted-foreground">
+                                  {employee.trade} · ID {employee.id_number || employee.id}
+                                </span>
+                              </span>
+                              {assignedOutsideBatch && (
+                                <span className="max-w-36 text-right text-[10px] font-semibold text-warn">
+                                  Assigned: {assigned.site} · {assigned.foreman}
+                                </span>
+                              )}
+                              {lockedInBatch && (
+                                <span className="text-[10px] font-bold text-money">
+                                  In this batch
+                                </span>
+                              )}
+                            </label>
+                          );
+                        })}
+                      {filteredPickerEmployees.length === 0 && (
+                        <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+                          No available employees match. Workers already assigned today are locked to
+                          their existing site batch.
+                        </p>
+                      )}
+                    </div>
+                    <div className="mt-2 flex justify-between gap-2 border-t border-border pt-2">
+                      <button
+                        type="button"
+                        onClick={toggleSelectAllAvailable}
+                        disabled={!filteredPickerEmployees.length}
+                        className={btnOutline}
+                      >
+                        {filteredPickerEmployees.length > 0 &&
+                        filteredPickerEmployees.every((employee) =>
+                          selectedIds.includes(employee.id),
+                        )
+                          ? "Clear available"
+                          : "Select all available"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEmployeePickerOpen(false);
+                          setEmployeeSearch("");
+                        }}
+                        className={btnOutline}
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
-                onClick={() => setEmployeePickerOpen((open) => !open)}
-                aria-expanded={employeePickerOpen}
-                className={`${input} flex h-8 items-center justify-between rounded-md px-2 py-1 text-left text-xs`}
+                onClick={toggleSelectAllAvailable}
+                disabled={!filteredPickerEmployees.length}
+                className={`${btnOutline} h-8 px-2.5 py-1 text-xs`}
               >
-                <span>
-                  {selectedCount
-                    ? `${selectedCount} employee${selectedCount === 1 ? "" : "s"} selected`
-                    : "Select employees…"}
-                </span>
-                <ChevronDown size={16} />
+                {filteredPickerEmployees.length > 0 &&
+                filteredPickerEmployees.every((employee) => selectedIds.includes(employee.id))
+                  ? "Clear available"
+                  : "Select all"}
               </button>
-              {employeePickerOpen && (
-                <div className="absolute z-30 mt-1 w-full rounded-md border border-border bg-card p-2 shadow-lg">
-                  <div className="relative mb-2">
-                    <Search
-                      size={15}
-                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    />
-                    <input
-                      autoFocus
-                      value={employeeSearch}
-                      onChange={(event) => setEmployeeSearch(event.target.value)}
-                      placeholder="Find employee by name, trade or ID"
-                      className={`${input} pl-9`}
-                    />
-                  </div>
-                  <div className="max-h-64 overflow-y-auto">
-                    {activeEmployees
-                      .filter((employee) => {
-                        const query = employeeSearch.trim().toLowerCase();
-                        return (
-                          !query ||
-                          [employee.name, employee.trade, employee.id_number, String(employee.id)]
-                            .join(" ")
-                            .toLowerCase()
-                            .includes(query)
-                        );
-                      })
-                      .map((employee) => {
-                        const checked = selectedIds.includes(employee.id);
-                        const assigned = timesheets.find(
-                          (entry) => entry.employee_id === employee.id,
-                        );
-                        const assignedOutsideBatch =
-                          assigned &&
-                          (!editingKey || batchKey(assigned.site, assigned.foreman) !== editingKey);
-                        const lockedInBatch =
-                          checked &&
-                          editingKey !== null &&
-                          assigned &&
-                          batchKey(assigned.site, assigned.foreman) === editingKey;
-                        return (
-                          <label
-                            key={employee.id}
-                            className={`flex min-h-11 items-center gap-3 rounded-lg px-2 py-2 text-sm ${
-                              assignedOutsideBatch
-                                ? "cursor-not-allowed opacity-50"
-                                : "cursor-pointer hover:bg-navy-soft"
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              disabled={Boolean(
-                                (assignedOutsideBatch && !checked) || lockedInBatch,
-                              )}
-                              onChange={() => toggleEmployee(employee)}
-                              className="h-4 w-4 accent-[var(--navy)]"
-                            />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate font-semibold text-navy">
-                                {employee.name}
-                              </span>
-                              <span className="block text-[11px] text-muted-foreground">
-                                {employee.trade} · ID {employee.id_number || employee.id}
-                              </span>
-                            </span>
-                            {assignedOutsideBatch && (
-                              <span className="max-w-36 text-right text-[10px] font-semibold text-warn">
-                                Assigned: {assigned.site} · {assigned.foreman}
-                              </span>
-                            )}
-                            {lockedInBatch && (
-                              <span className="text-[10px] font-bold text-money">
-                                In this batch
-                              </span>
-                            )}
-                          </label>
-                        );
-                      })}
-                    {filteredPickerEmployees.length === 0 && (
-                      <p className="px-3 py-4 text-center text-xs text-muted-foreground">
-                        No available employees match. Workers already assigned today are locked to
-                        their existing site batch.
-                      </p>
-                    )}
-                  </div>
-                  <div className="mt-2 flex justify-between gap-2 border-t border-border pt-2">
-                    <button
-                      type="button"
-                      onClick={selectAllAvailable}
-                      disabled={filteredPickerEmployees.every((employee) =>
-                        selectedIds.includes(employee.id),
-                      )}
-                      className={btnOutline}
-                    >
-                      Select all available
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEmployeePickerOpen(false);
-                        setEmployeeSearch("");
-                      }}
-                      className={btnOutline}
-                    >
-                      Done
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
 
             {duplicateAssignments.length > 0 && (
@@ -1442,6 +1538,19 @@ export function TimesheetsTab({
                     onChange={setBulkOutTime}
                     label="Bulk out time"
                     compact
+                  />
+                </label>
+                <label className="text-[10px] font-bold uppercase text-slate-500">
+                  Break (hrs)
+                  <input
+                    type="number"
+                    min="0"
+                    max="23.75"
+                    step="0.25"
+                    value={bulkBreakHours}
+                    onChange={(event) => setBulkBreakHours(event.target.value)}
+                    aria-label="Bulk break duration in hours"
+                    className={`${input} h-8 w-24 rounded px-2 py-1 text-xs`}
                   />
                 </label>
                 <div className="flex flex-wrap gap-1">
@@ -1569,7 +1678,13 @@ export function TimesheetsTab({
                       const statusStyle =
                         row.status === "PRESENT"
                           ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                          : "border-slate-200 bg-white text-slate-700";
+                          : row.status === "ABSENT"
+                            ? "border-rose-200 bg-rose-50 text-rose-800"
+                            : row.status === "HALF_DAY"
+                              ? "border-amber-200 bg-amber-50 text-amber-800"
+                              : row.status === "LEAVE"
+                                ? "border-sky-200 bg-sky-50 text-sky-800"
+                                : "border-slate-200 bg-white text-slate-700";
                       return (
                         <tr key={employee.id} className="h-11 hover:bg-slate-50/70">
                           <td className="px-2 text-center">

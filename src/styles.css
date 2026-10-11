@@ -275,6 +275,15 @@
     font-size: 12px;
   }
 
+  .project-attendance-card {
+    min-height: 148px;
+  }
+
+  .project-attendance-card:focus-visible {
+    outline: 3px solid color-mix(in oklch, var(--gold) 70%, white);
+    outline-offset: 2px;
+  }
+
   .attendance-batch-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
