@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Json } from "@/integrations/supabase/external-types";
-import type { Database } from "@/integrations/supabase/types";
+import type { Database } from "@/integrations/supabase/external-types";
 
 const roles = ["admin", "hr", "manager", "foreman"] as const;
 
@@ -46,7 +46,7 @@ async function assertAdmin(context: { userId: string; supabase: SupabaseClient<D
 }
 
 async function writeAudit(
-  admin: Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"],
+  admin: SupabaseClient<Database>,
   context: { userId: string; claims: Record<string, unknown> },
   tableName: string,
   recordId: string,
@@ -71,7 +71,7 @@ export const saveManagedUser = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => saveUserInput.parse(data))
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const supabaseAdmin = (await import("@/integrations/supabase/client.server")).supabaseAdmin as unknown as SupabaseClient<Database>;
     const input = data;
 
     if (input.role !== "manager" && input.projectIds.length > 0) {
@@ -268,7 +268,7 @@ export const saveManagedProject = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => saveProjectInput.parse(data))
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const supabaseAdmin = (await import("@/integrations/supabase/client.server")).supabaseAdmin as unknown as SupabaseClient<Database>;
     if (data.foremanUserId) {
       const { data: foreman, error } = await supabaseAdmin
         .from("users")
