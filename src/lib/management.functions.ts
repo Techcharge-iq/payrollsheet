@@ -1,12 +1,21 @@
 import { createServerFn } from "@tanstack/react-start";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { Json } from "@/integrations/supabase/external-types";
+import type { Database } from "@/integrations/supabase/types";
 
 const roles = ["admin", "hr", "manager", "foreman"] as const;
 
 const saveUserInput = z.object({
   userId: z.string().uuid().optional(),
-  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+  email: z
+    .string()
+    .trim()
+    .email()
+    .max(254)
+    .transform((value) => value.toLowerCase()),
+  password: z.string().max(72).optional(),
   fullName: z.string().trim().min(1).max(120),
   role: z.enum(roles),
   isActive: z.boolean(),
@@ -24,21 +33,7 @@ const saveProjectInput = z.object({
   foremanUserId: z.string().uuid().nullable(),
 });
 
-async function assertAdmin(context: {
-  userId: string;
-  supabase: {
-    from: (table: "users") => {
-      select: (columns: string) => {
-        eq: (column: "user_id", value: string) => {
-          maybeSingle: () => Promise<{
-            data: { role: string; is_active: boolean } | null;
-            error: { message: string } | null;
-          }>;
-        };
-      };
-    };
-  };
-}) {
+async function assertAdmin(context: { userId: string; supabase: SupabaseClient<Database> }) {
   const { data, error } = await context.supabase
     .from("users")
     .select("role,is_active")
@@ -56,8 +51,8 @@ async function writeAudit(
   tableName: string,
   recordId: string,
   operation: "INSERT" | "UPDATE",
-  oldData: Record<string, unknown> | null,
-  newData: Record<string, unknown>,
+  oldData: Json | null,
+  newData: Json,
 ) {
   const { error } = await admin.from("audit_logs").insert({
     table_name: tableName,
@@ -80,13 +75,19 @@ export const saveManagedUser = createServerFn({ method: "POST" })
     const input = data;
 
     if (input.role === "manager" && input.projectIds.length === 0) {
-      throw new Error("Assign a manager to at least one active project.");
+      throw new Error("Assign a manager to at least one project.");
     }
     if (input.role !== "manager" && input.projectIds.length > 0) {
       throw new Error("Only managers can have manager project assignments.");
     }
     if (input.role === "foreman" && !input.foremanProjectId) {
       throw new Error("Assign a foreman to a project.");
+    }
+    if (input.password && input.password.length < 8) {
+      throw new Error("A password must contain at least 8 characters.");
+    }
+    if (input.userId && input.password) {
+      throw new Error("Passwords can only be set when creating a new user.");
     }
     if (input.role !== "foreman" && input.foremanProjectId) {
       throw new Error("Only foremen can be assigned as project foremen.");
@@ -98,31 +99,28 @@ export const saveManagedUser = createServerFn({ method: "POST" })
         .eq("role", "admin")
         .eq("is_active", true);
       if (error) throw new Error(`Could not check active administrators: ${error.message}`);
-      if ((count ?? 0) <= 1) throw new Error("The last active administrator cannot be deactivated.");
+      if ((count ?? 0) <= 1)
+        throw new Error("The last active administrator cannot be deactivated.");
     }
-    if (
-      input.userId === context.userId &&
-      (!input.isActive || input.role !== "admin")
-    ) {
+    if (input.userId === context.userId && (!input.isActive || input.role !== "admin")) {
       throw new Error("You cannot deactivate or change your own administrator role.");
     }
 
     const { data: projects, error: projectError } = await supabaseAdmin
       .from("projects")
       .select("id,active,foreman_user_id");
-    if (projectError) throw new Error(`Could not validate project assignments: ${projectError.message}`);
-    const activeProjects = new Map(
-      (projects ?? []).filter((project) => project.active).map((project) => [project.id, project]),
-    );
-    if (input.projectIds.some((projectId) => !activeProjects.has(projectId))) {
-      throw new Error("Manager assignments must use active projects.");
+    if (projectError)
+      throw new Error(`Could not validate project assignments: ${projectError.message}`);
+    const existingProjectIds = new Set((projects ?? []).map((project) => project.id));
+    if (input.projectIds.some((projectId) => !existingProjectIds.has(projectId))) {
+      throw new Error("Manager assignments must use existing projects.");
     }
-    if (input.foremanProjectId && !activeProjects.has(input.foremanProjectId)) {
-      throw new Error("Foremen can only be assigned to an active project.");
+    if (input.foremanProjectId && !existingProjectIds.has(input.foremanProjectId)) {
+      throw new Error("Foremen can only be assigned to an existing project.");
     }
 
     let managedUserId = input.userId;
-    let previousProfile: Record<string, unknown> | null = null;
+    let previousProfile: Json | null = null;
     if (managedUserId) {
       const { data: existing, error } = await supabaseAdmin
         .from("users")
@@ -131,7 +129,7 @@ export const saveManagedUser = createServerFn({ method: "POST" })
         .maybeSingle();
       if (error) throw new Error(`Could not load the user profile: ${error.message}`);
       if (!existing) throw new Error("The selected user profile no longer exists.");
-      previousProfile = existing as Record<string, unknown>;
+      previousProfile = existing as Json;
     } else {
       const { data: existing, error } = await supabaseAdmin
         .from("users")
@@ -141,13 +139,27 @@ export const saveManagedUser = createServerFn({ method: "POST" })
       if (error) throw new Error(`Could not check for duplicate email: ${error.message}`);
       if (existing) throw new Error("A user profile already exists for this email address.");
 
-      const { data: invitation, error: inviteError } =
-        await supabaseAdmin.auth.admin.inviteUserByEmail(input.email, {
-          data: { full_name: input.fullName },
+      if (input.password) {
+        const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
+          email: input.email,
+          password: input.password,
+          email_confirm: true,
+          user_metadata: { full_name: input.fullName },
         });
-      if (inviteError) throw new Error(`Could not send the secure invitation: ${inviteError.message}`);
-      if (!invitation.user) throw new Error("Supabase did not return the invited account.");
-      managedUserId = invitation.user.id;
+        if (createError)
+          throw new Error(`Could not create the authentication account: ${createError.message}`);
+        if (!created.user) throw new Error("Supabase did not return the created account.");
+        managedUserId = created.user.id;
+      } else {
+        const { data: invitation, error: inviteError } =
+          await supabaseAdmin.auth.admin.inviteUserByEmail(input.email, {
+            data: { full_name: input.fullName },
+          });
+        if (inviteError)
+          throw new Error(`Could not send the secure invitation: ${inviteError.message}`);
+        if (!invitation.user) throw new Error("Supabase did not return the invited account.");
+        managedUserId = invitation.user.id;
+      }
     }
 
     const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.updateUserById(
@@ -157,8 +169,10 @@ export const saveManagedUser = createServerFn({ method: "POST" })
         ban_duration: input.isActive ? "none" : "876000h",
       },
     );
-    if (authError) throw new Error(`Could not update the authentication account: ${authError.message}`);
-    if (!authUser.user) throw new Error("Supabase did not return the updated authentication account.");
+    if (authError)
+      throw new Error(`Could not update the authentication account: ${authError.message}`);
+    if (!authUser.user)
+      throw new Error("Supabase did not return the updated authentication account.");
 
     const { error: profileError } = await supabaseAdmin.from("users").upsert(
       {
@@ -172,11 +186,10 @@ export const saveManagedUser = createServerFn({ method: "POST" })
     );
     if (profileError) {
       if (!input.userId) {
-        const { error: cleanupError } =
-          await supabaseAdmin.auth.admin.deleteUser(managedUserId);
+        const { error: cleanupError } = await supabaseAdmin.auth.admin.deleteUser(managedUserId);
         if (cleanupError) {
           throw new Error(
-            `Could not save the profile (${profileError.message}) or remove the incomplete invitation (${cleanupError.message}).`,
+            `Could not save the profile (${profileError.message}) or remove the incomplete account (${cleanupError.message}).`,
           );
         }
       }
@@ -188,7 +201,9 @@ export const saveManagedUser = createServerFn({ method: "POST" })
       .delete()
       .eq("manager_user_id", managedUserId);
     if (managerDeleteError) {
-      throw new Error(`Profile saved, but manager assignments could not be updated: ${managerDeleteError.message}`);
+      throw new Error(
+        `Profile saved, but manager assignments could not be updated: ${managerDeleteError.message}`,
+      );
     }
     if (input.role === "manager" && input.isActive) {
       const { error } = await supabaseAdmin.from("manager_project_assignments").insert(
@@ -198,7 +213,10 @@ export const saveManagedUser = createServerFn({ method: "POST" })
           assigned_by: context.userId,
         })),
       );
-      if (error) throw new Error(`Profile saved, but manager assignments could not be updated: ${error.message}`);
+      if (error)
+        throw new Error(
+          `Profile saved, but manager assignments could not be updated: ${error.message}`,
+        );
     }
 
     const oldForemanProjects = (projects ?? []).filter(
@@ -212,14 +230,20 @@ export const saveManagedUser = createServerFn({ method: "POST" })
         .from("projects")
         .update({ foreman_user_id: null })
         .eq("id", project.id);
-      if (error) throw new Error(`Profile saved, but the previous foreman assignment could not be removed: ${error.message}`);
+      if (error)
+        throw new Error(
+          `Profile saved, but the previous foreman assignment could not be removed: ${error.message}`,
+        );
     }
     if (input.role === "foreman" && input.isActive && input.foremanProjectId) {
       const { error } = await supabaseAdmin
         .from("projects")
         .update({ foreman_user_id: managedUserId })
         .eq("id", input.foremanProjectId);
-      if (error) throw new Error(`Profile saved, but the project foreman could not be assigned: ${error.message}`);
+      if (error)
+        throw new Error(
+          `Profile saved, but the project foreman could not be assigned: ${error.message}`,
+        );
     }
 
     await writeAudit(
@@ -262,7 +286,8 @@ export const saveManagedProject = createServerFn({ method: "POST" })
     const { data: names, error: nameError } = await supabaseAdmin
       .from("projects")
       .select("id,name");
-    if (nameError) throw new Error(`Could not check for duplicate project names: ${nameError.message}`);
+    if (nameError)
+      throw new Error(`Could not check for duplicate project names: ${nameError.message}`);
     if (
       (names ?? []).some(
         (project) =>
@@ -282,7 +307,12 @@ export const saveManagedProject = createServerFn({ method: "POST" })
       foreman_user_id: data.foremanUserId,
     };
     const query = data.projectId
-      ? supabaseAdmin.from("projects").update(projectValues).eq("id", data.projectId).select("*").single()
+      ? supabaseAdmin
+          .from("projects")
+          .update(projectValues)
+          .eq("id", data.projectId)
+          .select("*")
+          .single()
       : supabaseAdmin.from("projects").insert(projectValues).select("*").single();
     const { data: project, error } = await query;
     if (error) throw new Error(`Could not save the project: ${error.message}`);
@@ -293,7 +323,7 @@ export const saveManagedProject = createServerFn({ method: "POST" })
       project.id,
       data.projectId ? "UPDATE" : "INSERT",
       null,
-      project as Record<string, unknown>,
+      project as Json,
     );
     return project;
   });

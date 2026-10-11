@@ -15,12 +15,15 @@ import {
 import type { Employee } from "@/lib/payroll";
 import { dbAny } from "@/integrations/supabase/external-client";
 import { useTimesheetsForDate, type TimesheetRecord } from "@/lib/payroll-data";
+import { useProjects, type Project } from "@/lib/management-data";
 import { MonthlyAttendanceDialog } from "./MonthlyAttendanceDialog";
 import { TimeControl } from "./TimeControl";
 import { btnGold, btnOutline, card, input, select } from "./ui";
 
 interface Props {
   employees: Employee[];
+  role: string;
+  currentUserId: string;
   saving: boolean;
   onSave: (
     rows: Omit<TimesheetRecord, "id" | "created_at" | "total_hours" | "regular_hours">[],
@@ -144,10 +147,37 @@ function hoursFor(draft: AttendanceDraft) {
   return Math.max(0, (end - start) / 60 - (Number(draft.breakHours) || 0));
 }
 
-export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange }: Props) {
+export function TimesheetsTab({
+  employees,
+  role,
+  currentUserId,
+  saving,
+  onSave,
+  notify,
+  onDirtyChange,
+}: Props) {
   const [workDate, setWorkDate] = useState(today);
   const previousDate = previousCalendarDate(workDate);
   const timesheetsQuery = useTimesheetsForDate(workDate);
+  const projectsQuery = useProjects(true);
+  const foremenQuery = useQuery({
+    queryKey: ["management", "timesheet-foremen"],
+    queryFn: async (): Promise<
+      Array<{ user_id: string; full_name: string | null; email: string | null }>
+    > => {
+      const { data, error } = await dbAny
+        .from("users")
+        .select("user_id,full_name,email")
+        .eq("role", "foreman")
+        .order("full_name", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as Array<{
+        user_id: string;
+        full_name: string | null;
+        email: string | null;
+      }>;
+    },
+  });
   const assignmentsQuery = useQuery({
     queryKey: ["employee_site_assignments"],
     queryFn: async (): Promise<
@@ -155,18 +185,22 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
         employee_id: number;
         site: string;
         foreman: string;
+        project_id: string | null;
+        foreman_user_id: string | null;
         effective_from: string;
         effective_to: string | null;
       }>
     > => {
       const { data, error } = await dbAny
         .from("employee_site_assignments")
-        .select("employee_id,site,foreman,effective_from,effective_to");
+        .select("employee_id,site,foreman,project_id,foreman_user_id,effective_from,effective_to");
       if (error) throw error;
       return (data ?? []) as Array<{
         employee_id: number;
         site: string;
         foreman: string;
+        project_id: string | null;
+        foreman_user_id: string | null;
         effective_from: string;
         effective_to: string | null;
       }>;
@@ -174,12 +208,47 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   });
   const previousTimesheetsQuery = useTimesheetsForDate(previousDate);
   const timesheets = useMemo(() => timesheetsQuery.data ?? [], [timesheetsQuery.data]);
+  const projects = useMemo(() => projectsQuery.data ?? [], [projectsQuery.data]);
+  const foremanOptions = useMemo(() => {
+    const options: Array<{
+      value: string;
+      userId: string | null;
+      name: string;
+      label: string;
+    }> = (foremenQuery.data ?? []).map((user) => ({
+      value: user.user_id,
+      userId: user.user_id,
+      name: user.full_name?.trim() || user.email || "Unnamed foreman",
+      label: user.email
+        ? `${user.full_name?.trim() || user.email} · ${user.email}`
+        : user.full_name || "Unnamed foreman",
+    }));
+    const knownNames = new Set(options.map((option) => option.name.toLowerCase()));
+    const historicalNames = [
+      ...timesheets.map((entry) => entry.foreman),
+      ...employees
+        .filter((employee) => employee.trade === "FORMAN")
+        .map((employee) => employee.name),
+    ];
+    for (const name of historicalNames) {
+      const normalized = name.trim().toLowerCase();
+      if (!normalized || knownNames.has(normalized)) continue;
+      knownNames.add(normalized);
+      options.push({ value: `legacy:${name}`, userId: null, name, label: name });
+    }
+    return options;
+  }, [employees, foremenQuery.data, timesheets]);
   const previousEntries = useMemo(
     () => previousTimesheetsQuery.data ?? [],
     [previousTimesheetsQuery.data],
   );
   const [site, setSite] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [foreman, setForeman] = useState("");
+  const [selectedForemanId, setSelectedForemanId] = useState<string | null>(null);
+  const [projectStatusFilter, setProjectStatusFilter] = useState<"active" | "completed" | "all">(
+    "active",
+  );
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [attendance, setAttendance] = useState<Record<number, AttendanceDraft>>({});
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -201,6 +270,8 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
     batchKey: string | null;
     site: string;
     foreman: string;
+    projectId: string | null;
+    foremanId: string | null;
   } | null>(null);
 
   const activeEmployees = useMemo(
@@ -216,6 +287,44 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   );
   const savedBatches = useMemo(() => batchGroups(timesheets), [timesheets]);
   const previousBatches = useMemo(() => batchGroups(previousEntries), [previousEntries]);
+  const assignedProjects = useMemo(
+    () => projects.filter((project) => project.foreman_user_id === currentUserId),
+    [currentUserId, projects],
+  );
+  const visibleProjects = useMemo(
+    () =>
+      projects.filter(
+        (project) =>
+          project.id === selectedProjectId ||
+          projectStatusFilter === "all" ||
+          (projectStatusFilter === "active" ? project.active : !project.active),
+      ),
+    [projectStatusFilter, projects, selectedProjectId],
+  );
+  const visibleForemanProjects = useMemo(
+    () =>
+      assignedProjects.filter(
+        (project) =>
+          projectStatusFilter === "all" ||
+          (projectStatusFilter === "active" ? project.active : !project.active),
+      ),
+    [assignedProjects, projectStatusFilter],
+  );
+  const currentProjectAssignments = useMemo(
+    () =>
+      (assignmentsQuery.data ?? []).filter(
+        (assignment) =>
+          assignment.project_id === selectedProjectId &&
+          assignment.foreman_user_id === currentUserId &&
+          assignment.effective_from <= workDate &&
+          (!assignment.effective_to || assignment.effective_to >= workDate),
+      ),
+    [assignmentsQuery.data, currentUserId, selectedProjectId, workDate],
+  );
+  const projectAssignmentIds = useMemo(
+    () => new Set(currentProjectAssignments.map((assignment) => assignment.employee_id)),
+    [currentProjectAssignments],
+  );
   const selectedEmployees = useMemo(
     () =>
       selectedIds.flatMap((id) => {
@@ -244,7 +353,13 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
       return;
     }
     setSite(matches[0]!.site);
+    setSelectedProjectId(matches[0]!.project_id);
     setForeman(matches[0]!.foreman);
+    setSelectedForemanId(
+      matches[0]!.foreman_user_id ??
+        foremanOptions.find((option) => option.name === matches[0]!.foreman)?.userId ??
+        null,
+    );
     setDirty(true);
   };
   const filteredPickerEmployees = useMemo(() => {
@@ -260,12 +375,13 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
         return false;
       }
       const assigned = timesheets.find((entry) => entry.employee_id === employee.id);
+      if (role === "foreman" && !projectAssignmentIds.has(employee.id)) return false;
       return (
         !assigned ||
         (editingKey !== null && batchKey(assigned.site, assigned.foreman) === editingKey)
       );
     });
-  }, [activeEmployees, editingKey, employeeSearch, timesheets]);
+  }, [activeEmployees, editingKey, employeeSearch, projectAssignmentIds, role, timesheets]);
   const duplicateAssignments = useMemo(
     () =>
       selectedEmployees.flatMap((employee) => {
@@ -290,6 +406,12 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   useEffect(() => {
     const pending = pendingDateEdit.current;
     if (!pending || timesheetsQuery.isLoading || timesheetsQuery.error) return;
+    if (
+      role === "foreman" &&
+      (assignmentsQuery.isLoading || projectsQuery.isLoading || foremenQuery.isLoading)
+    ) {
+      return;
+    }
     pendingDateEdit.current = null;
 
     const batch = pending.batchKey
@@ -297,7 +419,20 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
       : undefined;
     if (batch) {
       setSite(batch.site);
+      setSelectedProjectId(
+        batch.entries[0]?.project_id ??
+          pending.projectId ??
+          projects.find((project) => project.name === batch.site)?.id ??
+          null,
+      );
       setForeman(batch.foreman);
+      setSelectedForemanId(
+        batch.entries[0]?.foreman_user_id ??
+          pending.foremanId ??
+          (role === "foreman"
+            ? currentUserId
+            : (foremanOptions.find((option) => option.name === batch.foreman)?.userId ?? null)),
+      );
       setEditingKey(batch.key);
       setSelectedIds(batch.entries.map((entry) => entry.employee_id));
       setAttendance(
@@ -307,16 +442,73 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
       );
     } else {
       setSite(pending.site);
+      setSelectedProjectId(pending.projectId);
       setForeman(pending.foreman);
+      setSelectedForemanId(
+        pending.foremanId ??
+          (role === "foreman"
+            ? currentUserId
+            : (foremanOptions.find((option) => option.name === pending.foreman)?.userId ?? null)),
+      );
       setEditingKey(null);
       setSelectedIds([]);
       setAttendance({});
+      if (role === "foreman" && pending.projectId) {
+        const projectEntries = timesheets.filter(
+          (entry) =>
+            entry.project_id === pending.projectId && entry.foreman_user_id === currentUserId,
+        );
+        const assignedIds = (assignmentsQuery.data ?? [])
+          .filter(
+            (assignment) =>
+              assignment.project_id === pending.projectId &&
+              assignment.foreman_user_id === currentUserId &&
+              assignment.effective_from <= workDate &&
+              (!assignment.effective_to || assignment.effective_to >= workDate),
+          )
+          .map((assignment) => assignment.employee_id);
+        const entryIds = projectEntries.map((entry) => entry.employee_id);
+        const employeeIds = [...new Set([...assignedIds, ...entryIds])].filter((id) => {
+          const existing = timesheets.find((entry) => entry.employee_id === id);
+          return (
+            activeEmployees.some((employee) => employee.id === id) &&
+            (!existing || entryIds.includes(id))
+          );
+        });
+        setSelectedIds(employeeIds);
+        setAttendance(
+          Object.fromEntries(
+            employeeIds.map((id) => {
+              const existing = projectEntries.find((entry) => entry.employee_id === id);
+              return [id, existing ? attendanceFromRecord(existing) : defaultAttendance()];
+            }),
+          ),
+        );
+        setEditingKey(
+          projectEntries[0] ? batchKey(projectEntries[0].site, projectEntries[0].foreman) : null,
+        );
+      }
     }
     setDirty(false);
     setEmployeeSearch("");
     setEmployeePickerOpen(false);
     setCopyPickerOpen(false);
-  }, [savedBatches, timesheetsQuery.error, timesheetsQuery.isLoading]);
+  }, [
+    currentUserId,
+    activeEmployees,
+    assignmentsQuery.data,
+    assignmentsQuery.isLoading,
+    foremenQuery.isLoading,
+    foremanOptions,
+    projects,
+    projectsQuery.isLoading,
+    role,
+    savedBatches,
+    timesheets,
+    timesheetsQuery.error,
+    timesheetsQuery.isLoading,
+    workDate,
+  ]);
 
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -357,7 +549,9 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
 
   const resetForm = () => {
     setSite("");
+    setSelectedProjectId(null);
     setForeman("");
+    setSelectedForemanId(null);
     setSelectedIds([]);
     setAttendance({});
     setEditingKey(null);
@@ -383,7 +577,18 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   const editBatch = (batch: AttendanceBatch) => {
     if (dirty && !confirmDiscard()) return;
     setSite(batch.site);
+    setSelectedProjectId(
+      batch.entries[0]?.project_id ??
+        projects.find((project) => project.name === batch.site)?.id ??
+        null,
+    );
     setForeman(batch.foreman);
+    setSelectedForemanId(
+      batch.entries[0]?.foreman_user_id ??
+        (role === "foreman"
+          ? currentUserId
+          : (foremanOptions.find((option) => option.name === batch.foreman)?.userId ?? null)),
+    );
     setEditingKey(batch.key);
     setSelectedIds(batch.entries.map((entry) => entry.employee_id));
     setAttendance(
@@ -528,7 +733,13 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
   const loadCopiedBatch = (batch: AttendanceBatch) => {
     if (dirty && !confirmDiscard()) return;
     setSite(batch.site);
+    setSelectedProjectId(batch.entries[0]?.project_id ?? null);
     setForeman(batch.foreman);
+    setSelectedForemanId(
+      batch.entries[0]?.foreman_user_id ??
+        foremanOptions.find((option) => option.name === batch.foreman)?.userId ??
+        null,
+    );
     setEditingKey(null);
     setSelectedIds(batch.entries.map((entry) => entry.employee_id));
     setAttendance(
@@ -543,11 +754,97 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
     );
   };
 
+  const openAssignedProject = (project: Project) => {
+    if (dirty && !confirmDiscard()) return;
+    if (assignmentsQuery.isLoading) {
+      notify("Project worker assignments are still loading.", "warn");
+      return;
+    }
+    if (assignmentsQuery.error) {
+      notify(
+        `Could not load project worker assignments: ${assignmentsQuery.error.message}`,
+        "warn",
+      );
+      return;
+    }
+    const foremanAccount = foremenQuery.data?.find((user) => user.user_id === currentUserId);
+    if (!foremanAccount) {
+      notify(
+        foremenQuery.error
+          ? `Could not load your foreman account: ${foremenQuery.error.message}`
+          : "Could not find your foreman account. Ask an administrator to check your account.",
+        "warn",
+      );
+      return;
+    }
+
+    const foremanName =
+      foremanAccount.full_name?.trim() || foremanAccount.email || "Unnamed foreman";
+    const projectEntries = timesheets.filter(
+      (entry) =>
+        (entry.project_id === project.id || entry.site === project.name) &&
+        (entry.foreman_user_id === currentUserId ||
+          entry.foreman === foremanName ||
+          (entry.foreman_user_id === null && entry.site === project.name)),
+    );
+    const entryIds = new Set(projectEntries.map((entry) => entry.employee_id));
+    const assignedEmployeeIds = (assignmentsQuery.data ?? [])
+      .filter(
+        (assignment) =>
+          assignment.project_id === project.id &&
+          assignment.foreman_user_id === currentUserId &&
+          assignment.effective_from <= workDate &&
+          (!assignment.effective_to || assignment.effective_to >= workDate),
+      )
+      .map((assignment) => assignment.employee_id);
+    const candidateIds = new Set([...assignedEmployeeIds, ...entryIds]);
+    const employeeIds = [...candidateIds].filter((id) => {
+      if (!employeeById.has(id)) return false;
+      const existing = timesheets.find((entry) => entry.employee_id === id);
+      return !existing || entryIds.has(id);
+    });
+    const matchingBatch = savedBatches.find((batch) =>
+      batch.entries.some((entry) => entryIds.has(entry.employee_id)),
+    );
+
+    setSite(project.name);
+    setSelectedProjectId(project.id);
+    setForeman(foremanName);
+    setSelectedForemanId(currentUserId);
+    setEditingKey(matchingBatch?.key ?? null);
+    setSelectedIds(employeeIds);
+    setAttendance(
+      Object.fromEntries(
+        employeeIds.map((id) => {
+          const existing = timesheets.find(
+            (entry) =>
+              entry.employee_id === id && (entry.project_id === project.id || entryIds.has(id)),
+          );
+          return [id, existing ? attendanceFromRecord(existing) : defaultAttendance()];
+        }),
+      ),
+    );
+    setDirty(false);
+    setEmployeeSearch("");
+    setEmployeePickerOpen(false);
+    setCopyPickerOpen(false);
+  };
+
   const saveBatch = async () => {
     const cleanSite = site.trim();
     const cleanForeman = foreman.trim();
     if (!cleanSite || !cleanForeman) {
       notify("Enter both a site and a foreman before saving the attendance batch.", "warn");
+      return;
+    }
+    const projectId =
+      selectedProjectId ?? projects.find((project) => project.name === cleanSite)?.id ?? null;
+    if (!projectId) {
+      notify("Choose an existing project before saving attendance.", "warn");
+      return;
+    }
+    if (role === "foreman" && selectedForemanId !== currentUserId) {
+      notify("Foremen can only record attendance under their own account.", "warn");
       return;
     }
     if (!selectedIds.length) {
@@ -644,6 +941,8 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
         employee_id: employee.id,
         site: cleanSite,
         foreman: cleanForeman,
+        project_id: projectId,
+        foreman_user_id: selectedForemanId,
         work_date: workDate,
         status: row.status,
         in_time: doesWork ? inTime : null,
@@ -690,6 +989,108 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
 
   return (
     <section ref={sectionRef} className="space-y-2.5">
+      {role === "foreman" && (
+        <section className={`${card} space-y-3 p-4`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-display text-base font-extrabold text-navy">
+                Your assigned projects
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Choose a project to see its assigned workers and record today’s attendance.
+              </p>
+            </div>
+            <select
+              aria-label="Show assigned projects by status"
+              className={`${select} max-w-44`}
+              value={projectStatusFilter}
+              onChange={(event) =>
+                setProjectStatusFilter(event.target.value as typeof projectStatusFilter)
+              }
+            >
+              <option value="active">Active projects</option>
+              <option value="completed">Completed projects</option>
+              <option value="all">All projects</option>
+            </select>
+          </div>
+          {projectsQuery.error && (
+            <p role="alert" className="text-sm text-danger">
+              Could not load assigned projects: {projectsQuery.error.message}
+            </p>
+          )}
+          {assignmentsQuery.error && (
+            <p role="alert" className="text-sm text-danger">
+              Could not load project worker assignments: {assignmentsQuery.error.message}
+            </p>
+          )}
+          {projectsQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading your projects…</p>
+          ) : visibleForemanProjects.length ? (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {visibleForemanProjects.map((project) => {
+                const roster = (assignmentsQuery.data ?? []).filter(
+                  (assignment) =>
+                    assignment.project_id === project.id &&
+                    assignment.foreman_user_id === currentUserId &&
+                    assignment.effective_from <= workDate &&
+                    (!assignment.effective_to || assignment.effective_to >= workDate),
+                );
+                const rosterIds = new Set(roster.map((assignment) => assignment.employee_id));
+                const recordedCount = timesheets.filter(
+                  (entry) =>
+                    rosterIds.has(entry.employee_id) &&
+                    (entry.project_id === project.id || entry.site === project.name),
+                ).length;
+                const selected = selectedProjectId === project.id;
+                return (
+                  <button
+                    key={project.id}
+                    type="button"
+                    onClick={() => openAssignedProject(project)}
+                    className={`rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md ${
+                      selected
+                        ? "border-navy bg-navy-soft shadow-sm"
+                        : "border-border bg-card hover:border-navy/40"
+                    }`}
+                  >
+                    <span className="flex items-start justify-between gap-2">
+                      <span className="font-display text-base font-bold text-navy">
+                        {project.name}
+                      </span>
+                      <span
+                        className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+                          project.active
+                            ? "bg-emerald-100 text-emerald-800"
+                            : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {project.active ? "Active" : "Completed"}
+                      </span>
+                    </span>
+                    {project.location && (
+                      <span className="mt-1 block truncate text-xs text-muted-foreground">
+                        {project.location}
+                      </span>
+                    )}
+                    <span className="mt-3 block text-xs font-semibold text-slate-600">
+                      {roster.length} assigned · {recordedCount} marked for {workDate}
+                    </span>
+                    <span className="mt-2 block text-xs font-bold text-navy">
+                      {selected ? "Selected · open attendance below" : "Open daily attendance →"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="rounded-lg bg-muted/30 p-3 text-sm text-muted-foreground">
+              {assignedProjects.length
+                ? "No assigned projects match this status filter."
+                : "No projects are currently assigned to your foreman account. Ask an administrator to assign a project."}
+            </p>
+          )}
+        </section>
+      )}
       <div className={`${card} attendance-batch-toolbar attendance-scroll-reveal`}>
         <label className="attendance-batch-field">
           Attendance date
@@ -700,7 +1101,13 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
               const nextDate = event.target.value;
               if (!nextDate || nextDate === workDate) return;
               if (dirty && !window.confirm("Discard unsaved attendance batch changes?")) return;
-              pendingDateEdit.current = { batchKey: editingKey, site, foreman };
+              pendingDateEdit.current = {
+                batchKey: editingKey,
+                site,
+                foreman,
+                projectId: selectedProjectId,
+                foremanId: selectedForemanId,
+              };
               setDirty(false);
               setWorkDate(nextDate);
               setCopyPickerOpen(false);
@@ -708,68 +1115,141 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
             className={`${input} rounded-md px-2 py-1 text-xs`}
           />
         </label>
-        <button
-          type="button"
-          className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
-          disabled={!selectedIds.length || assignmentsQuery.isLoading}
-          onClick={applyRecordedAssignment}
-        >
-          Use recorded assignment
-        </button>
-        <label className="attendance-batch-field">
-          Site / project
-          <input
-            value={site}
-            onChange={(event) => {
-              setSite(event.target.value);
-              setDirty(true);
-            }}
-            placeholder="Enter or choose a site"
-            list="attendance-sites"
-            className={`${input} rounded-md px-2 py-1 text-xs`}
-          />
-        </label>
-        <label className="attendance-batch-field">
-          Foreman
-          <input
-            value={foreman}
-            onChange={(event) => {
-              setForeman(event.target.value);
-              setDirty(true);
-            }}
-            placeholder="Enter or choose a foreman"
-            list="attendance-foremen"
-            className={`${input} rounded-md px-2 py-1 text-xs`}
-          />
-        </label>
-        <div className="attendance-batch-actions">
-          <button
-            type="button"
-            onClick={() => setMonthlyAttendanceOpen(true)}
-            className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
-          >
-            <CalendarDays size={13} /> Monthly employee entry
-          </button>
-          <button
-            type="button"
-            onClick={copyPreviousDay}
-            className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
-          >
-            <Copy size={13} /> Copy previous day
-          </button>
-          <button
-            type="button"
-            onClick={startNewBatch}
-            className={`${btnGold} rounded-md px-2.5 py-1 text-xs`}
-          >
-            <Plus size={14} /> New batch
-          </button>
-        </div>
+        {role !== "foreman" && (
+          <>
+            <button
+              type="button"
+              className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
+              disabled={!selectedIds.length || assignmentsQuery.isLoading}
+              onClick={applyRecordedAssignment}
+            >
+              Use recorded assignment
+            </button>
+            <label className="attendance-batch-field">
+              Project status
+              <select
+                className={`${select} rounded-md px-2 py-1 text-xs`}
+                value={projectStatusFilter}
+                onChange={(event) =>
+                  setProjectStatusFilter(event.target.value as typeof projectStatusFilter)
+                }
+              >
+                <option value="active">Active projects</option>
+                <option value="completed">Completed projects</option>
+                <option value="all">All projects</option>
+              </select>
+            </label>
+            <label className="attendance-batch-field">
+              Site / project
+              <select
+                required
+                value={selectedProjectId ?? ""}
+                onChange={(event) => {
+                  if (dirty && !confirmDiscard()) return;
+                  const project = projects.find((item) => item.id === event.target.value);
+                  setSelectedProjectId(project?.id ?? null);
+                  setSite(project?.name ?? "");
+                  const assignedForeman = foremanOptions.find(
+                    (option) => option.userId === project?.foreman_user_id,
+                  );
+                  setForeman(assignedForeman?.name ?? "");
+                  setSelectedForemanId(assignedForeman?.userId ?? null);
+                  setSelectedIds([]);
+                  setAttendance({});
+                  setEditingKey(null);
+                  setDirty(false);
+                }}
+                className={`${select} rounded-md px-2 py-1 text-xs`}
+              >
+                <option value="">Choose an existing project</option>
+                {visibleProjects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                    {project.active ? "" : " (completed)"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="attendance-batch-field">
+              Foreman
+              <select
+                required
+                value={
+                  selectedForemanId ??
+                  foremanOptions.find((option) => !option.userId && option.name === foreman)
+                    ?.value ??
+                  ""
+                }
+                onChange={(event) => {
+                  const option = foremanOptions.find((item) => item.value === event.target.value);
+                  setForeman(option?.name ?? "");
+                  setSelectedForemanId(option?.userId ?? null);
+                  setDirty(true);
+                }}
+                className={`${select} rounded-md px-2 py-1 text-xs`}
+              >
+                <option value="">Choose an existing foreman</option>
+                {foremanOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="attendance-batch-actions">
+              <button
+                type="button"
+                onClick={() => setMonthlyAttendanceOpen(true)}
+                className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
+              >
+                <CalendarDays size={13} /> Monthly employee entry
+              </button>
+              <button
+                type="button"
+                onClick={copyPreviousDay}
+                className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
+              >
+                <Copy size={13} /> Copy previous day
+              </button>
+              <button
+                type="button"
+                onClick={startNewBatch}
+                className={`${btnGold} rounded-md px-2.5 py-1 text-xs`}
+              >
+                <Plus size={14} /> New batch
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {timesheetsQuery.error && (
         <p className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm font-medium text-danger">
           <AlertTriangle size={15} /> Could not load attendance: {timesheetsQuery.error.message}
+        </p>
+      )}
+      {role !== "foreman" && projectsQuery.error && (
+        <p
+          role="alert"
+          className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
+        >
+          Could not load projects: {projectsQuery.error.message}
+        </p>
+      )}
+      {role !== "foreman" && foremenQuery.error && (
+        <p
+          role="alert"
+          className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
+        >
+          Could not load foremen: {foremenQuery.error.message}
+        </p>
+      )}
+      {role !== "foreman" && assignmentsQuery.error && (
+        <p
+          role="alert"
+          className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
+        >
+          Could not load employee assignments: {assignmentsQuery.error.message}
         </p>
       )}
 
@@ -805,28 +1285,6 @@ export function TimesheetsTab({ employees, saving, onSave, notify, onDirtyChange
                 </div>
               </div>
             )}
-
-            <datalist id="attendance-sites">
-              {[...new Set(timesheets.map((entry) => entry.site).filter(Boolean))]
-                .sort()
-                .map((name) => (
-                  <option key={name} value={name} />
-                ))}
-            </datalist>
-            <datalist id="attendance-foremen">
-              {[
-                ...new Set([
-                  ...timesheets.map((entry) => entry.foreman).filter(Boolean),
-                  ...employees
-                    .filter((employee) => employee.trade === "FORMAN")
-                    .map((employee) => employee.name),
-                ]),
-              ]
-                .sort()
-                .map((name) => (
-                  <option key={name} value={name} />
-                ))}
-            </datalist>
 
             <div className="relative w-full max-w-xs">
               <button

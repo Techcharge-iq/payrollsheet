@@ -13,6 +13,7 @@ export interface PayrollLine {
   id?: string;
   batch_id?: string;
   employee_id: number | "";
+  foreman_user_id?: string | null;
   foreman: string;
   hours: number | string;
   rate: number | string;
@@ -50,6 +51,8 @@ export interface PayrollBatch {
   id: string;
   month: string;
   site: string;
+  project_id?: string | null;
+  foreman_user_id?: string | null;
   foreman: string;
   lines: PayrollLine[];
   status: PayrollBatchStatus;

@@ -43,6 +43,7 @@ import {
   usePayrollAdvanceBalancesBefore,
   useTimesheetsForMonth,
 } from "@/lib/payroll-data";
+import { useActiveForemen, useProjects } from "@/lib/management-data";
 import { downloadPayrollImportTemplate, readPayrollImport } from "@/lib/payroll-excel";
 import {
   downloadPayrollBatch,
@@ -521,6 +522,9 @@ export function PayrollTab({
     /payroll_settings|does not exist|not found/i.test(error.message ?? "");
 
   const timesheetsQuery = useTimesheetsForMonth(month);
+  const projectsQuery = useProjects(true);
+  const foremenQuery = useActiveForemen();
+  const projects = projectsQuery.data ?? [];
   const timesheets = useMemo(() => timesheetsQuery.data ?? [], [timesheetsQuery.data]);
   const timesheetsLoading = timesheetsQuery.isLoading;
   const timesheetsError =
@@ -628,14 +632,28 @@ export function PayrollTab({
   );
 
   const foremen = useMemo(() => {
-    const set = new Set<string>();
-    employees.filter((e) => e.trade === "FORMAN").forEach((e) => set.add(e.name));
-    batches.forEach((b) => {
-      if (b.foreman) set.add(b.foreman);
-      b.lines.forEach((l) => l.foreman && set.add(l.foreman));
-    });
-    return [...set].sort();
-  }, [employees, batches]);
+    return [...(foremenQuery.data ?? [])].sort((a, b) =>
+      (a.full_name || a.email || "").localeCompare(b.full_name || b.email || ""),
+    );
+  }, [foremenQuery.data]);
+
+  const updateProject = (projectId: string) => {
+    const project = projects.find((item) => item.id === projectId);
+    const assignedForeman = project?.foreman_user_id
+      ? foremen.find((foreman) => foreman.user_id === project.foreman_user_id)
+      : undefined;
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            project_id: project?.id ?? null,
+            site: project?.name ?? "",
+            foreman_user_id: assignedForeman?.user_id ?? null,
+            foreman: assignedForeman?.full_name ?? assignedForeman?.email ?? "",
+          }
+        : current,
+    );
+  };
 
   useEffect(() => {
     setDraft(null);
@@ -773,6 +791,10 @@ export function PayrollTab({
       const line: PayrollLine = {
         employee_id: employee.id,
         foreman: total.foremen.size === 1 ? [...total.foremen][0]! : "Multiple foremen",
+        foreman_user_id:
+          total.foremen.size === 1
+            ? (foremen.find((item) => item.full_name === [...total.foremen][0])?.user_id ?? null)
+            : null,
         hours: Number((total.regularHours + total.overtimeHours).toFixed(3)),
         rate: effectiveRate,
         rate_segments: rateSegments,
@@ -835,7 +857,11 @@ export function PayrollTab({
       notify(`Payroll batch in ${batch.status} status cannot be edited.`, "warn");
       return;
     }
-    setDraft(batch);
+    setDraft({
+      ...batch,
+      project_id:
+        batch.project_id ?? projects.find((project) => project.name === batch.site)?.id ?? null,
+    });
   };
 
   const closeEditor = () => {
@@ -1065,8 +1091,28 @@ export function PayrollTab({
     const emp = employees.find((e) => String(e.id) === value);
     setLine(idx, {
       employee_id: value ? Number(value) : "",
+      foreman_user_id: null,
+      foreman: "",
       rate: emp ? (effectiveRateForMonth(emp.id, month, salaryHistory) ?? emp.hourly_rate) : "",
       prev_advance: emp ? carryForward(emp.id) : "",
+    });
+  };
+
+  const foremanForLine = (line: PayrollLine) =>
+    line.foreman_user_id ??
+    foremen.find(
+      (foreman) =>
+        (foreman.full_name || foreman.email || "").trim().toLowerCase() ===
+        line.foreman.trim().toLowerCase(),
+    )?.user_id ??
+    (line.foreman ? "legacy" : "");
+
+  const chooseLineForeman = (index: number, userId: string) => {
+    if (userId === "legacy") return;
+    const foreman = foremen.find((item) => item.user_id === userId);
+    setLine(index, {
+      foreman_user_id: foreman?.user_id ?? null,
+      foreman: foreman?.full_name ?? foreman?.email ?? "",
     });
   };
 
@@ -1267,26 +1313,73 @@ export function PayrollTab({
             <div className="flex flex-wrap items-end gap-3 border-b border-border bg-navy-soft px-4 py-3">
               <div className="min-w-40 flex-1">
                 <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                  Site
+                  Project
                 </label>
-                <input
-                  value={draft.site}
-                  onChange={(e) => setDraft({ ...draft, site: e.target.value })}
-                  placeholder="Site / project"
-                  className={input}
-                />
+                <select
+                  value={draft.project_id ?? (draft.site ? "legacy-site" : "")}
+                  onChange={(event) => {
+                    if (event.target.value === "legacy-site") {
+                      setDraft({ ...draft, project_id: null });
+                      return;
+                    }
+                    updateProject(event.target.value);
+                  }}
+                  className={select}
+                  aria-label="Payroll project"
+                >
+                  <option value="">Select project…</option>
+                  {draft.site && !draft.project_id && (
+                    <option value="legacy-site">{draft.site} (no single project)</option>
+                  )}
+                  {draft.project_id &&
+                    !projects.some((project) => project.id === draft.project_id) && (
+                      <option value={draft.project_id}>{draft.site} (unavailable)</option>
+                    )}
+                  {projects
+                    .filter((project) => project.active || project.id === draft.project_id)
+                    .map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                        {project.active ? "" : " (inactive)"}
+                      </option>
+                    ))}
+                </select>
               </div>
               <div className="min-w-40 flex-1">
                 <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                  Batch foreman (default)
+                  Batch foreman
                 </label>
-                <input
-                  value={draft.foreman}
-                  onChange={(e) => setDraft({ ...draft, foreman: e.target.value })}
-                  placeholder="Foreman name"
-                  list="foreman-options"
-                  className={input}
-                />
+                <select
+                  value={draft.foreman_user_id ?? (draft.foreman ? "legacy" : "")}
+                  onChange={(event) => {
+                    if (event.target.value === "legacy") {
+                      setDraft({ ...draft, foreman_user_id: null });
+                      return;
+                    }
+                    const foreman = foremen.find((item) => item.user_id === event.target.value);
+                    setDraft({
+                      ...draft,
+                      foreman_user_id: foreman?.user_id ?? null,
+                      foreman: foreman?.full_name ?? foreman?.email ?? "",
+                    });
+                  }}
+                  className={select}
+                  aria-label="Batch foreman"
+                >
+                  <option value="">Unassigned</option>
+                  {draft.foreman && !draft.foreman_user_id && (
+                    <option value="legacy">{draft.foreman} (existing)</option>
+                  )}
+                  {foremen.map((foreman) => (
+                    <option key={foreman.user_id} value={foreman.user_id}>
+                      {foreman.full_name || foreman.email || "Unnamed foreman"}
+                    </option>
+                  ))}
+                  {draft.foreman_user_id &&
+                    !foremen.some((item) => item.user_id === draft.foreman_user_id) && (
+                      <option value={draft.foreman_user_id}>{draft.foreman} (inactive)</option>
+                    )}
+                </select>
               </div>
             </div>
 
@@ -1351,12 +1444,6 @@ export function PayrollTab({
               </div>
             )}
 
-            <datalist id="foreman-options">
-              {foremen.map((f) => (
-                <option key={f} value={f} />
-              ))}
-            </datalist>
-
             <div className="min-h-0 flex-1 overflow-auto px-2 py-3 sm:px-4">
               <div className="hidden overflow-x-auto md:block xl:overflow-x-visible">
                 <table className="w-full min-w-270 text-xs">
@@ -1413,15 +1500,26 @@ export function PayrollTab({
                           </td>
                           <td className="px-2 py-2">
                             {foremanLine === idx ? (
-                              <input
+                              <select
                                 autoFocus
-                                value={l.foreman}
-                                list="foreman-options"
-                                onChange={(e) => setLine(idx, { foreman: e.target.value })}
+                                value={foremanForLine(l)}
+                                onChange={(e) => chooseLineForeman(idx, e.target.value)}
                                 onBlur={() => setForemanLine(null)}
                                 className={inputSm + " min-w-30"}
-                                placeholder="Line foreman"
-                              />
+                                aria-label={`Foreman for ${employees.find((employee) => employee.id === l.employee_id)?.name ?? `line ${idx + 1}`}`}
+                              >
+                                <option value="">
+                                  Batch default ({draft.foreman || "Unassigned"})
+                                </option>
+                                {l.foreman && !l.foreman_user_id && (
+                                  <option value="legacy">{l.foreman} (existing)</option>
+                                )}
+                                {foremen.map((foreman) => (
+                                  <option key={foreman.user_id} value={foreman.user_id}>
+                                    {foreman.full_name || foreman.email || "Unnamed foreman"}
+                                  </option>
+                                ))}
+                              </select>
                             ) : (
                               <button
                                 type="button"
@@ -1557,13 +1655,22 @@ export function PayrollTab({
                       <span className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase text-slate-500">
                         <HardHat size={12} className="text-gold-dark" /> Foreman
                       </span>
-                      <input
-                        value={l.foreman}
-                        list="foreman-options"
-                        onChange={(e) => setLine(idx, { foreman: e.target.value })}
-                        placeholder={draft.foreman || "Foreman name"}
+                      <select
+                        value={foremanForLine(l)}
+                        onChange={(e) => chooseLineForeman(idx, e.target.value)}
                         className={inputSm}
-                      />
+                        aria-label={`Foreman for ${employees.find((employee) => employee.id === l.employee_id)?.name ?? `line ${idx + 1}`}`}
+                      >
+                        <option value="">Batch default ({draft.foreman || "Unassigned"})</option>
+                        {l.foreman && !l.foreman_user_id && (
+                          <option value="legacy">{l.foreman} (existing)</option>
+                        )}
+                        {foremen.map((foreman) => (
+                          <option key={foreman.user_id} value={foreman.user_id}>
+                            {foreman.full_name || foreman.email || "Unnamed foreman"}
+                          </option>
+                        ))}
+                      </select>
                     </label>
 
                     <div className="grid grid-cols-2 gap-3">

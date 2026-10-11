@@ -705,6 +705,8 @@ function Dashboard({
             {tab === "timesheets" && (
               <TimesheetsTab
                 employees={employees}
+                role={role}
+                currentUserId={userId}
                 saving={saveTimesheets.isPending}
                 onSave={(rows) => saveTimesheets.mutateAsync(rows)}
                 notify={notify}

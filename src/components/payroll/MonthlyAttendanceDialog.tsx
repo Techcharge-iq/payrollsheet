@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Save } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
 import { useTimesheetsForMonth, type TimesheetRecord } from "@/lib/payroll-data";
+import { useProjects } from "@/lib/management-data";
+import { dbAny } from "@/integrations/supabase/external-client";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +22,9 @@ type AttendanceEntry = Omit<TimesheetRecord, "id" | "created_at" | "total_hours"
 interface DayDraft {
   status: AttendanceStatus | "";
   site: string;
+  projectId: string;
   foreman: string;
+  foremanUserId: string;
   inTime: string;
   outTime: string;
   breakHours: string;
@@ -58,7 +63,9 @@ function dayFromRecord(entry: TimesheetRecord): DayDraft {
   return {
     status: entry.status,
     site: entry.site,
+    projectId: entry.project_id ?? "",
     foreman: entry.foreman,
+    foremanUserId: entry.foreman_user_id ?? "",
     inTime: entry.in_time?.slice(0, 5) ?? "",
     outTime: entry.out_time?.slice(0, 5) ?? "",
     breakHours: String(entry.break_hours ?? 0),
@@ -71,7 +78,9 @@ function emptyDay(): DayDraft {
   return {
     status: "",
     site: "",
+    projectId: "",
     foreman: "",
+    foremanUserId: "",
     inTime: "",
     outTime: "",
     breakHours: "0",
@@ -96,6 +105,25 @@ export function MonthlyAttendanceDialog({
   const [days, setDays] = useState<Record<number, DayDraft>>({});
   const loadedContext = useRef("");
   const timesheetsQuery = useTimesheetsForMonth(month);
+  const projectsQuery = useProjects(true);
+  const foremenQuery = useQuery({
+    queryKey: ["management", "timesheet-foremen"],
+    queryFn: async (): Promise<
+      Array<{ user_id: string; full_name: string | null; email: string | null }>
+    > => {
+      const { data, error } = await dbAny
+        .from("users")
+        .select("user_id,full_name,email")
+        .eq("role", "foreman")
+        .order("full_name", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as Array<{
+        user_id: string;
+        full_name: string | null;
+        email: string | null;
+      }>;
+    },
+  });
   const calendarDays = useMemo(
     () => Array.from({ length: daysInMonth(month) }, (_, index) => index + 1),
     [month],
@@ -104,6 +132,32 @@ export function MonthlyAttendanceDialog({
     () => [...employees].sort((a, b) => a.name.localeCompare(b.name)),
     [employees],
   );
+  const projects = projectsQuery.data ?? [];
+  const foremanOptions = useMemo(() => {
+    const options: Array<{ value: string; userId: string | null; name: string; label: string }> = (
+      foremenQuery.data ?? []
+    ).map((user) => ({
+      value: user.user_id,
+      userId: user.user_id,
+      name: user.full_name?.trim() || user.email || "Unnamed foreman",
+      label: user.email
+        ? `${user.full_name?.trim() || user.email} · ${user.email}`
+        : user.full_name || "Unnamed foreman",
+    }));
+    const knownNames = new Set(options.map((option) => option.name.toLowerCase()));
+    for (const name of [
+      ...(timesheetsQuery.data ?? []).map((entry) => entry.foreman),
+      ...employees
+        .filter((employee) => employee.trade === "FORMAN")
+        .map((employee) => employee.name),
+    ]) {
+      const normalized = name.trim().toLowerCase();
+      if (!normalized || knownNames.has(normalized)) continue;
+      knownNames.add(normalized);
+      options.push({ value: `legacy:${name}`, userId: null, name, label: name });
+    }
+    return options;
+  }, [employees, foremenQuery.data, timesheetsQuery.data]);
 
   useEffect(() => {
     if (!employeeId || timesheetsQuery.isLoading || timesheetsQuery.error) return;
@@ -154,7 +208,11 @@ export function MonthlyAttendanceDialog({
     }
 
     const invalidDays = entries.filter(({ row }) => {
-      if (!row.site.trim() || !row.foreman.trim()) return true;
+      const projectId = row.projectId || projects.find((project) => project.name === row.site)?.id;
+      const foremanOption = foremanOptions.find(
+        (option) => option.userId === row.foremanUserId || option.name === row.foreman,
+      );
+      if (!row.site.trim() || !projectId || !row.foreman.trim() || !foremanOption) return true;
       if (!worked(row.status as AttendanceStatus)) return false;
       const [startHour, startMinute] = row.inTime.split(":").map(Number);
       const [endHour, endMinute] = row.outTime.split(":").map(Number);
@@ -189,7 +247,13 @@ export function MonthlyAttendanceDialog({
       return {
         employee_id: Number(employeeId),
         site: row.site.trim(),
+        project_id:
+          row.projectId || projects.find((project) => project.name === row.site)?.id || null,
         foreman: row.foreman.trim(),
+        foreman_user_id:
+          row.foremanUserId ||
+          foremanOptions.find((option) => option.name === row.foreman)?.userId ||
+          null,
         work_date: date,
         status: row.status as AttendanceStatus,
         in_time: doesWork ? row.inTime : null,
@@ -253,6 +317,16 @@ export function MonthlyAttendanceDialog({
             Could not load monthly attendance: {timesheetsQuery.error.message}
           </p>
         )}
+        {projectsQuery.error && (
+          <p role="alert" className="mx-4 mt-3 text-sm text-danger">
+            Could not load projects: {projectsQuery.error.message}
+          </p>
+        )}
+        {foremenQuery.error && (
+          <p role="alert" className="mx-4 mt-3 text-sm text-danger">
+            Could not load foremen: {foremenQuery.error.message}
+          </p>
+        )}
 
         <div className="min-h-0 flex-1 overflow-auto p-4">
           {timesheetsQuery.isLoading ? (
@@ -302,20 +376,59 @@ export function MonthlyAttendanceDialog({
                           </select>
                         </td>
                         <td className="px-2 py-1.5">
-                          <input
-                            value={row.site}
-                            onChange={(event) => updateDay(day, { site: event.target.value })}
+                          <select
+                            value={
+                              row.projectId ||
+                              projects.find((project) => project.name === row.site)?.id ||
+                              ""
+                            }
+                            onChange={(event) => {
+                              const project = projects.find(
+                                (item) => item.id === event.target.value,
+                              );
+                              updateDay(day, {
+                                projectId: project?.id ?? "",
+                                site: project?.name ?? "",
+                              });
+                            }}
                             aria-label={`Day ${day} site`}
-                            className={`${input} min-w-32 px-2 py-1`}
-                          />
+                            className={`${select} min-w-40 px-2 py-1`}
+                          >
+                            <option value="">Choose project</option>
+                            {projects.map((project) => (
+                              <option key={project.id} value={project.id}>
+                                {project.name}
+                                {project.active ? "" : " (completed)"}
+                              </option>
+                            ))}
+                          </select>
                         </td>
                         <td className="px-2 py-1.5">
-                          <input
-                            value={row.foreman}
-                            onChange={(event) => updateDay(day, { foreman: event.target.value })}
+                          <select
+                            value={
+                              row.foremanUserId ||
+                              foremanOptions.find((option) => option.name === row.foreman)?.value ||
+                              ""
+                            }
+                            onChange={(event) => {
+                              const option = foremanOptions.find(
+                                (item) => item.value === event.target.value,
+                              );
+                              updateDay(day, {
+                                foreman: option?.name ?? "",
+                                foremanUserId: option?.userId ?? "",
+                              });
+                            }}
                             aria-label={`Day ${day} foreman`}
-                            className={`${input} min-w-32 px-2 py-1`}
-                          />
+                            className={`${select} min-w-40 px-2 py-1`}
+                          >
+                            <option value="">Choose foreman</option>
+                            {foremanOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
                         </td>
                         <td className="px-2 py-1.5">
                           <TimeControl
@@ -386,7 +499,13 @@ export function MonthlyAttendanceDialog({
           <button
             type="button"
             onClick={() => void save()}
-            disabled={saving || timesheetsQuery.isLoading || Boolean(timesheetsQuery.error)}
+            disabled={
+              saving ||
+              timesheetsQuery.isLoading ||
+              projectsQuery.isLoading ||
+              foremenQuery.isLoading ||
+              Boolean(timesheetsQuery.error || projectsQuery.error || foremenQuery.error)
+            }
             className={btnPrimary}
           >
             <Save size={15} /> {saving ? "Saving…" : "Save monthly attendance"}
