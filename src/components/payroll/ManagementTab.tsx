@@ -5,6 +5,7 @@ import { dbAny } from "@/integrations/supabase/external-client";
 import { useActiveForemen, useManagedUsers, useProjects } from "@/lib/management-data";
 import type { ManagedUser, Project } from "@/lib/management-data";
 import { saveManagedProject, saveManagedUser } from "@/lib/management.functions";
+import { projectAccessError } from "@/lib/project-access";
 import { btnOutline, btnPrimary, card, input, select, th } from "./ui";
 
 type Role = ManagedUser["role"];
@@ -90,14 +91,19 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
       const { data, error } = await dbAny
         .from("manager_project_assignments")
         .select("manager_user_id,project_id");
-      if (error) throw error;
+      if (error) throw new Error(projectAccessError(error, "load"));
       return (data ?? []) as Array<{ manager_user_id: string; project_id: string }>;
     },
   });
 
   const saveUser = useMutation({
-    mutationFn: () =>
-      saveManagedUser({
+    mutationFn: () => {
+      if (userDraft.userId && userDraft.role === "manager" && managerProjectsQuery.error) {
+        throw new Error(
+          `Cannot safely save this manager account until project assignments load: ${projectAccessError(managerProjectsQuery.error, "load")}`,
+        );
+      }
+      return saveManagedUser({
         data: {
           ...(userDraft.userId ? { userId: userDraft.userId } : {}),
           email: userDraft.email,
@@ -108,7 +114,8 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
           projectIds: userDraft.projectIds,
           foremanProjectId: userDraft.foremanProjectId || null,
         },
-      }),
+      });
+    },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["management", "users"] }),
@@ -226,7 +233,11 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
           role="alert"
           className="rounded-lg border border-danger/30 bg-danger/5 p-3 text-sm text-danger"
         >
-          Could not load management data: {displayError(requestError)}
+          {requestError === managerProjectsQuery.error
+            ? `Could not load project assignments: ${projectAccessError(managerProjectsQuery.error, "load")}`
+            : requestError === projectsQuery.error
+              ? `Could not load projects: ${projectAccessError(projectsQuery.error, "load")}`
+              : `Could not load management data: ${displayError(requestError)}`}
         </p>
       )}
 

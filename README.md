@@ -67,6 +67,8 @@ Admins can read, create, edit, and delete payroll records. HR can read, create, 
 
 In-app user and project management uses server-side Supabase admin operations. Configure `EXTERNAL_SUPABASE_SERVICE_ROLE_KEY` as a server-only environment secret with the service-role key for the payroll Supabase project (`milcjipktyhlwiriujrw.supabase.co`). Do not expose this key through a `VITE_` variable or in client code.
 
+Managers, HR, and administrators can review saved daily attendance with AI for missing active-employee records and unusual hour totals. Configure `AI_GATEWAY_API_KEY` as a server-only secret; optionally set `AI_GATEWAY_MODEL` (default: `openai/gpt-4o-mini`). The review sends employee names, IDs, attendance status, and hour totals for the selected date to Vercel AI Gateway. Results are advisory and must be checked before payroll is processed.
+
 ## Daily timesheets and attendance reports
 
 Payroll uses the existing `employees`, `payroll_batches`, and `payroll_lines` tables. Daily attendance is stored separately in `public.timesheets`, linked to an employee, with a site and foreman name, work date, in/out times, and break duration. `total_hours` is a generated database column, so saved hours are derived from the recorded shift rather than accepted from the browser. Site names remain on each timesheet entry; a separate site directory is not required.

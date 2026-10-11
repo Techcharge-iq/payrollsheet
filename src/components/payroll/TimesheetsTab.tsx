@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CalendarDays,
@@ -10,14 +10,17 @@ import {
   Pencil,
   Plus,
   Search,
+  Sparkles,
   Trash2,
   Users,
   X,
 } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
 import { dbAny } from "@/integrations/supabase/external-client";
+import { reviewDailyAttendance } from "@/lib/attendance-review.functions";
 import { useTimesheetsForDate, type TimesheetRecord } from "@/lib/payroll-data";
 import { useProjects, type Project } from "@/lib/management-data";
+import { projectAccessError } from "@/lib/project-access";
 import { MonthlyAttendanceDialog } from "./MonthlyAttendanceDialog";
 import { TimeControl } from "./TimeControl";
 import { btnGold, btnOutline, card, input, select } from "./ui";
@@ -196,7 +199,7 @@ export function TimesheetsTab({
       const { data, error } = await dbAny
         .from("employee_site_assignments")
         .select("employee_id,site,foreman,project_id,foreman_user_id,effective_from,effective_to");
-      if (error) throw error;
+      if (error) throw new Error(projectAccessError(error, "load"));
       return (data ?? []) as Array<{
         employee_id: number;
         site: string;
@@ -284,6 +287,9 @@ export function TimesheetsTab({
         .sort((a, b) => a.name.localeCompare(b.name)),
     [employees],
   );
+  const attendanceReview = useMutation({
+    mutationFn: () => reviewDailyAttendance({ data: { workDate } }),
+  });
   const employeeById = useMemo(
     () => new Map(employees.map((employee) => [employee.id, employee])),
     [employees],
@@ -1086,7 +1092,7 @@ export function TimesheetsTab({
         </div>
         {projectsQuery.error && (
           <p role="alert" className="text-sm text-danger">
-            Could not load projects: {projectsQuery.error.message}
+            Could not load projects: {projectAccessError(projectsQuery.error, "load")}
           </p>
         )}
         {assignmentsQuery.error && (
@@ -1311,7 +1317,7 @@ export function TimesheetsTab({
           role="alert"
           className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
         >
-          Could not load employee assignments: {assignmentsQuery.error.message}
+          Could not load employee assignments: {projectAccessError(assignmentsQuery.error, "load")}
         </p>
       )}
 
@@ -1338,6 +1344,73 @@ export function TimesheetsTab({
               </article>
             ))}
           </section>
+          {["admin", "hr", "manager"].includes(role) && (
+            <section className={`${card} space-y-3 p-3`} aria-label="AI attendance review">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="flex items-center gap-2 text-sm font-bold text-navy">
+                    <Sparkles size={15} /> AI attendance review
+                  </h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Check saved attendance for missing active employees and unusual hour totals.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
+                  disabled={attendanceReview.isPending || timesheetsQuery.isLoading}
+                  onClick={() => attendanceReview.mutate()}
+                >
+                  <Sparkles size={14} />
+                  {attendanceReview.isPending ? "Reviewing…" : "Review attendance"}
+                </button>
+              </div>
+              {attendanceReview.error && (
+                <p role="alert" className="text-sm text-danger">
+                  Could not review attendance: {attendanceReview.error.message}
+                </p>
+              )}
+              {attendanceReview.data?.workDate === workDate && (
+                <div className="space-y-2 rounded-md bg-muted/30 p-3 text-sm">
+                  <p>{attendanceReview.data.summary}</p>
+                  <p className="font-semibold">
+                    Missing records ({attendanceReview.data.missingEmployees.length})
+                  </p>
+                  {attendanceReview.data.missingEmployees.length ? (
+                    <ul className="list-inside list-disc">
+                      {attendanceReview.data.missingEmployees.map((employee) => (
+                        <li key={employee.id}>{employee.name}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      All active employees have an attendance record for this date.
+                    </p>
+                  )}
+                  <p className="font-semibold">
+                    Unusual hours ({attendanceReview.data.unusualHours.length})
+                  </p>
+                  {attendanceReview.data.unusualHours.length ? (
+                    <ul className="list-inside list-disc">
+                      {attendanceReview.data.unusualHours.map((item) => (
+                        <li key={item.employeeId}>
+                          {item.employeeName}: {item.totalHours} hrs ({item.severity}) —{" "}
+                          {item.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No unusual hour totals were flagged.
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    AI results are suggestions; verify records before payroll is processed.
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
           <div className="space-y-2 attendance-scroll-reveal">
             {editingKey && (
               <p className="px-1 text-xs font-semibold text-navy">Editing saved attendance batch</p>
