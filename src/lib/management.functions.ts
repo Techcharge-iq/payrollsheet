@@ -1,9 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createServerFn } from "@tanstack/react-start";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Json } from "@/integrations/supabase/external-types";
-import type { Database } from "@/integrations/supabase/external-types";
 
 const roles = ["admin", "hr", "manager", "foreman"] as const;
 
@@ -33,7 +33,7 @@ const saveProjectInput = z.object({
   foremanUserId: z.string().uuid().nullable(),
 });
 
-async function assertAdmin(context: { userId: string; supabase: SupabaseClient<Database> }) {
+async function assertAdmin(context: { userId: string; supabase: SupabaseClient<any> }) {
   const { data, error } = await context.supabase
     .from("users")
     .select("role,is_active")
@@ -46,7 +46,7 @@ async function assertAdmin(context: { userId: string; supabase: SupabaseClient<D
 }
 
 async function writeAudit(
-  admin: SupabaseClient<Database>,
+  admin: SupabaseClient<any>,
   context: { userId: string; claims: Record<string, unknown> },
   tableName: string,
   recordId: string,
@@ -71,7 +71,7 @@ export const saveManagedUser = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => saveUserInput.parse(data))
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
-    const supabaseAdmin = (await import("@/integrations/supabase/client.server")).supabaseAdmin as unknown as SupabaseClient<Database>;
+    const supabaseAdmin = (await import("@/integrations/supabase/client.server")).supabaseAdmin as unknown as SupabaseClient<any>;
     const input = data;
 
     if (input.role !== "manager" && input.projectIds.length > 0) {
@@ -268,7 +268,7 @@ export const saveManagedProject = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => saveProjectInput.parse(data))
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
-    const supabaseAdmin = (await import("@/integrations/supabase/client.server")).supabaseAdmin as unknown as SupabaseClient<Database>;
+    const supabaseAdmin = (await import("@/integrations/supabase/client.server")).supabaseAdmin as unknown as SupabaseClient<any>;
     if (data.foremanUserId) {
       const { data: foreman, error } = await supabaseAdmin
         .from("users")
