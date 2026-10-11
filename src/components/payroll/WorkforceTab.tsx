@@ -1,4 +1,3 @@
-import { useProjects } from "@/lib/management-data";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -8,10 +7,12 @@ import {
   Check,
   Clock3,
   Plus,
+  Search,
   X,
 } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
 import { dbAny } from "@/integrations/supabase/external-client";
+import { useProjects } from "@/lib/management-data";
 import { projectAccessError } from "@/lib/project-access";
 import { btnGold, btnOutline, btnPrimary, card, input, select } from "./ui";
 
@@ -27,6 +28,7 @@ interface Assignment {
   employee_id: number;
   site: string;
   foreman: string;
+  project_id?: string | null;
   effective_from: string;
   effective_to: string | null;
 }
@@ -88,6 +90,10 @@ export function WorkforceTab({
   const [foreman, setForeman] = useState("");
   const [transferDate, setTransferDate] = useState(today);
   const [transferReason, setTransferReason] = useState("");
+  const [assignmentProjectId, setAssignmentProjectId] = useState("");
+  const [assignmentEmployeeIds, setAssignmentEmployeeIds] = useState<string[]>([]);
+  const [assignmentDate, setAssignmentDate] = useState(today);
+  const [assignmentSearch, setAssignmentSearch] = useState("");
   const [leaveTypeName, setLeaveTypeName] = useState("");
   const [leaveEntitlement, setLeaveEntitlement] = useState("");
   const [leaveTreatment, setLeaveTreatment] = useState<LeaveType["payroll_treatment"]>("MANUAL");
@@ -137,6 +143,7 @@ export function WorkforceTab({
       return (data ?? []) as Assignment[];
     },
   });
+  const projects = useProjects();
   const transfers = useQuery({
     queryKey: ["employee_transfer_requests"],
     queryFn: async () => {
@@ -170,6 +177,30 @@ export function WorkforceTab({
 
   const refresh = async (...keys: string[]) =>
     Promise.all(keys.map((key) => qc.invalidateQueries({ queryKey: [key] })));
+  const assignEmployees = useMutation({
+    mutationFn: async () => {
+      if (!assignmentProjectId || assignmentEmployeeIds.length === 0 || !assignmentDate) {
+        throw new Error("Choose a site, at least one employee, and an effective date.");
+      }
+      const { data, error } = await dbAny.rpc("assign_employees_to_project", {
+        target_project_id: assignmentProjectId,
+        target_employee_ids: assignmentEmployeeIds.map(Number),
+        target_effective_on: assignmentDate,
+      });
+      if (error) throw new Error(projectAccessError(error, "save"));
+      return Number(data);
+    },
+    onSuccess: async (count: number) => {
+      await refresh("employee_site_assignments");
+      setAssignmentEmployeeIds([]);
+      notify(
+        count === 0
+          ? "All selected employees are already assigned to this site."
+          : `${count} employee${count === 1 ? "" : "s"} assigned to the selected site.`,
+      );
+    },
+    onError: (error) => notify(projectAccessError(error, "save"), "warn"),
+  });
   const saveRate = useMutation({
     mutationFn: async () => {
       if (!employeeId || !rate || Number(rate) < 0 || !rateDate)
@@ -234,40 +265,34 @@ export function WorkforceTab({
     },
     onError: (e) => notify(e.message, "warn"),
   });
-  const projectsList = useProjects();
   const saveTransfer = useMutation({
     mutationFn: async () => {
       if (!employeeId || !site.trim() || !transferDate)
-        throw new Error("Choose an employee, site, and start date.");
+        throw new Error("Choose an employee, site, and effective date.");
       const empId = Number(employeeId);
-      const project = (projectsList.data ?? []).find((p) => p.name === site);
+      const project = (projects.data ?? []).find((p) => p.name === site);
+      if (!project) throw new Error("Choose an active site.");
       const current = (assignments.data ?? []).find(
         (a) => a.employee_id === empId && !a.effective_to,
       );
-      if (current) {
-        const d = new Date(`${transferDate}T00:00:00`);
-        d.setDate(d.getDate() - 1);
-        const end = d.toISOString().slice(0, 10);
-        const { error } = await dbAny
-          .from("employee_site_assignments")
-          .update({ effective_to: end < current.effective_from ? current.effective_from : end })
-          .eq("id", current.id);
-        if (error) throw error;
-      }
-      const { error } = await dbAny.from("employee_site_assignments").insert({
+      const { error } = await dbAny.from("employee_transfer_requests").insert({
         employee_id: empId,
-        site: site.trim(),
-        foreman: foreman.trim(),
-        project_id: project?.id ?? null,
-        foreman_user_id: project?.foreman_user_id ?? null,
-        effective_from: transferDate,
+        from_site: current?.site ?? null,
+        from_project_id: current?.project_id ?? null,
+        to_site: project.name,
+        to_foreman: foreman.trim(),
+        to_project_id: project.id,
+        to_foreman_user_id: project.foreman_user_id,
+        effective_on: transferDate,
+        reason: transferReason.trim(),
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      void refresh("employee_site_assignments");
+      void refresh("employee_transfer_requests");
       setForeman("");
-      notify("Employee assigned to site.");
+      setTransferReason("");
+      notify("Transfer request submitted for review.");
     },
     onError: (e) => notify(e.message, "warn"),
   });
@@ -340,6 +365,32 @@ export function WorkforceTab({
     () => (assignments.data ?? []).filter((a) => !a.effective_to),
     [assignments.data],
   );
+  const currentSiteByEmployee = useMemo(
+    () => new Map(currentAssignment.map((assignment) => [assignment.employee_id, assignment.site])),
+    [currentAssignment],
+  );
+  const activeEmployees = useMemo(
+    () =>
+      employees
+        .filter((employee) => employee.status === "Active")
+        .filter((employee) => {
+          const query = assignmentSearch.trim().toLowerCase();
+          return (
+            !query ||
+            employee.name.toLowerCase().includes(query) ||
+            employee.trade.toLowerCase().includes(query) ||
+            String(employee.id_number ?? "")
+              .toLowerCase()
+              .includes(query)
+          );
+        })
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [employees, assignmentSearch],
+  );
+  const visibleEmployeeIds = activeEmployees.map((employee) => String(employee.id));
+  const allVisibleEmployeesSelected =
+    visibleEmployeeIds.length > 0 &&
+    visibleEmployeeIds.every((id) => assignmentEmployeeIds.includes(id));
   const selectedEmployee = employees.find((e) => String(e.id) === employeeId);
   const approvedDays = useMemo(() => {
     const totals = new Map<string, number>();
@@ -354,6 +405,7 @@ export function WorkforceTab({
   const recordError =
     salaries.error ??
     assignments.error ??
+    projects.error ??
     transfers.error ??
     leaveTypes.error ??
     leaveRequests.error;
@@ -416,6 +468,81 @@ export function WorkforceTab({
       </section>
       <section className={card + " space-y-4 p-4"}>
         <h3 className="flex items-center gap-2 font-bold text-navy">
+          <Clock3 size={17} />
+          Salary rate history
+        </h3>
+        <div className="grid gap-3 sm:grid-cols-4">
+          <select
+            className={select}
+            value={employeeId}
+            onChange={(e) => setEmployeeId(e.target.value)}
+          >
+            <option value="">Select employee</option>
+            {employees.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.name} · {e.trade}
+              </option>
+            ))}
+          </select>
+          <input
+            className={input}
+            type="number"
+            min="0"
+            step="0.001"
+            placeholder="Hourly rate"
+            value={rate}
+            onChange={(e) => setRate(e.target.value)}
+          />
+          <input
+            className={input}
+            type="date"
+            value={rateDate}
+            onChange={(e) => setRateDate(e.target.value)}
+          />
+          <button
+            className={btnGold}
+            disabled={saveRate.isPending}
+            onClick={() => saveRate.mutate()}
+          >
+            <Plus size={15} />
+            Record rate
+          </button>
+        </div>
+        <div className="max-h-56 overflow-auto rounded-lg border border-border">
+          <table className="w-full text-left text-xs">
+            <thead className="sticky top-0 bg-navy-soft">
+              <tr>
+                <th className="p-2">Employee</th>
+                <th className="p-2">Effective from</th>
+                <th className="p-2 text-right">OMR / hour</th>
+                <th className="p-2">Recorded</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(salaries.data ?? []).map((r) => (
+                <tr className="border-t border-border" key={r.id}>
+                  <td className="p-2">
+                    {employees.find((e) => e.id === r.employee_id)?.name ??
+                      `Employee ${r.employee_id}`}
+                  </td>
+                  <td className="p-2">{r.effective_on}</td>
+                  <td className="p-2 text-right">{Number(r.hourly_rate).toFixed(3)}</td>
+                  <td className="p-2">{new Date(r.created_at).toLocaleDateString()}</td>
+                </tr>
+              ))}
+              {!salaries.data?.length && (
+                <tr>
+                  <td className="p-3 text-muted-foreground" colSpan={4}>
+                    No rate changes recorded yet. Existing historical rates are not inferred.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className={card + " space-y-4 p-4"}>
+        <h3 className="flex items-center gap-2 font-bold text-navy">
           <ArrowLeftRight size={17} />
           Add employee to site / move to another site
         </h3>
@@ -443,7 +570,7 @@ export function WorkforceTab({
           </select>
           <select className={select} value={site} onChange={(e) => setSite(e.target.value)}>
             <option value="">Select site / project</option>
-            {(projectsList.data ?? []).map((p) => (
+            {(projects.data ?? []).map((p) => (
               <option key={p.id} value={p.name}>
                 {p.name}
               </option>
@@ -467,9 +594,206 @@ export function WorkforceTab({
             onClick={() => saveTransfer.mutate()}
           >
             <Plus size={15} />
-            Assign to site
+            Request transfer
           </button>
         </div>
+        <input
+          className={input}
+          placeholder="Reason (optional)"
+          value={transferReason}
+          onChange={(e) => setTransferReason(e.target.value)}
+        />
+        <div className="max-h-56 space-y-2 overflow-auto">
+          {(transfers.data ?? []).map((request) => (
+            <div
+              key={request.id}
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3 text-xs"
+            >
+              <b className="text-navy">
+                {employees.find((employee) => employee.id === request.employee_id)?.name ??
+                  `Employee ${request.employee_id}`}
+              </b>
+              <span>
+                {request.from_site || "Unknown"} → {request.to_site}
+              </span>
+              <span>{request.effective_on}</span>
+              <span className="font-bold">{request.status}</span>
+              {isAdmin && request.status === "PENDING" && (
+                <>
+                  <button
+                    className={btnOutline}
+                    onClick={() => reviewTransfer.mutate({ id: request.id, status: "APPROVED" })}
+                  >
+                    <Check size={14} />
+                    Approve
+                  </button>
+                  <button
+                    className={btnOutline}
+                    onClick={() => reviewTransfer.mutate({ id: request.id, status: "REJECTED" })}
+                  >
+                    <X size={14} />
+                    Reject
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+          {!transfers.data?.length && (
+            <p className="text-xs text-muted-foreground">No transfer requests yet.</p>
+          )}
+        </div>
+      </section>
+      <section className={card + " space-y-4 p-4"}>
+        <h3 className="flex items-center gap-2 font-bold text-navy">
+          <ArrowLeftRight size={17} />
+          Site assignment history
+        </h3>
+        {isAdmin && (
+          <div className="space-y-3 rounded-xl border border-gold/40 bg-gold/5 p-4">
+            <div>
+              <h4 className="font-bold text-navy">Assign multiple employees to a site</h4>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Move existing employees without creating duplicate employee records. Previous site
+                assignments stay in the history; the new assignment starts on the selected date.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <select
+                className={select}
+                value={assignmentProjectId}
+                onChange={(event) => setAssignmentProjectId(event.target.value)}
+                aria-label="Select destination site"
+              >
+                <option value="">Select destination site</option>
+                {(projects.data ?? []).map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                    {project.code ? ` · ${project.code}` : ""}
+                  </option>
+                ))}
+              </select>
+              <input
+                className={input}
+                type="date"
+                value={assignmentDate}
+                onChange={(event) => setAssignmentDate(event.target.value)}
+                aria-label="Assignment effective date"
+              />
+            </div>
+            {projects.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading active sites…</p>
+            ) : projects.data?.length === 0 ? (
+              <p className="rounded-lg border border-gold/40 bg-background p-3 text-sm text-muted-foreground">
+                No active sites are available. Add or activate a project in Management first.
+              </p>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative min-w-52 flex-1">
+                    <Search
+                      size={15}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+                    <input
+                      className={input + " pl-9"}
+                      value={assignmentSearch}
+                      onChange={(event) => setAssignmentSearch(event.target.value)}
+                      placeholder="Search active employees…"
+                      aria-label="Search employees for site assignment"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className={btnOutline}
+                    disabled={visibleEmployeeIds.length === 0}
+                    onClick={() =>
+                      setAssignmentEmployeeIds((selected) =>
+                        allVisibleEmployeesSelected
+                          ? selected.filter((id) => !visibleEmployeeIds.includes(id))
+                          : [...new Set([...selected, ...visibleEmployeeIds])],
+                      )
+                    }
+                  >
+                    {allVisibleEmployeesSelected ? "Clear visible" : "Select visible"}
+                  </button>
+                </div>
+                <div className="max-h-60 overflow-y-auto rounded-lg border border-border bg-background">
+                  {activeEmployees.length === 0 ? (
+                    <p className="p-3 text-sm text-muted-foreground">
+                      No active employees match this search.
+                    </p>
+                  ) : (
+                    activeEmployees.map((employee) => {
+                      const id = String(employee.id);
+                      const checked = assignmentEmployeeIds.includes(id);
+                      return (
+                        <label
+                          key={employee.id}
+                          className="flex cursor-pointer items-center gap-3 border-b border-border p-3 last:border-b-0 hover:bg-navy-soft"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setAssignmentEmployeeIds((selected) =>
+                                checked
+                                  ? selected.filter((selectedId) => selectedId !== id)
+                                  : [...selected, id],
+                              )
+                            }
+                            className="size-4 accent-navy"
+                          />
+                          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+                            {employee.name}
+                            <span className="ml-2 font-normal text-muted-foreground">
+                              {employee.trade}
+                            </span>
+                          </span>
+                          <span className="text-right text-xs text-muted-foreground">
+                            {currentSiteByEmployee.get(employee.id) ?? "No current site"}
+                          </span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs text-muted-foreground">
+                    {assignmentEmployeeIds.length} employee
+                    {assignmentEmployeeIds.length === 1 ? "" : "s"} selected
+                    {projects.data?.find((project) => project.id === assignmentProjectId)
+                      ?.foreman_user_id
+                      ? " · Uses the selected site's configured foreman"
+                      : ""}
+                  </p>
+                  <button
+                    type="button"
+                    className={btnGold}
+                    disabled={
+                      assignEmployees.isPending ||
+                      !assignmentProjectId ||
+                      assignmentEmployeeIds.length === 0 ||
+                      !assignmentDate
+                    }
+                    onClick={() => assignEmployees.mutate()}
+                  >
+                    <BriefcaseBusiness size={15} />
+                    {assignEmployees.isPending
+                      ? "Assigning…"
+                      : `Assign ${assignmentEmployeeIds.length || ""} to site`}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Current recorded assignment:{" "}
+          {selectedEmployee
+            ? (currentAssignment.find((a) => a.employee_id === selectedEmployee.id)?.site ??
+              "Unknown")
+            : "Select an employee above"}
+        </p>
         <div className="max-h-48 overflow-auto rounded-lg border border-border">
           <table className="w-full text-left text-xs">
             <thead className="bg-navy-soft">
