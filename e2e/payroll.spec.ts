@@ -351,6 +351,10 @@ test.describe("responsive application navigation and dialogs", () => {
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
       ).toBe(true);
+      if (!viewport.mobile) {
+        const menuBounds = await page.locator("#application-menu").boundingBox();
+        expect(menuBounds?.x).toBeGreaterThanOrEqual(0);
+      }
 
       await openTab(page, "Monthly Payroll", viewport.mobile);
       await openTab(page, "Employees", viewport.mobile);
