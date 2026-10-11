@@ -230,29 +230,40 @@ export function WorkforceTab({
     },
     onError: (e) => notify(e.message, "warn"),
   });
+  const projectsList = useProjects();
   const saveTransfer = useMutation({
     mutationFn: async () => {
       if (!employeeId || !site.trim() || !transferDate)
-        throw new Error("Choose an employee, destination site, and effective date.");
+        throw new Error("Choose an employee, site, and start date.");
+      const empId = Number(employeeId);
+      const project = (projectsList.data ?? []).find((p) => p.name === site);
       const current = (assignments.data ?? []).find(
-        (a) => a.employee_id === Number(employeeId) && !a.effective_to,
+        (a) => a.employee_id === empId && !a.effective_to,
       );
-      const { error } = await dbAny.from("employee_transfer_requests").insert({
-        employee_id: Number(employeeId),
-        from_site: current?.site ?? null,
-        to_site: site.trim(),
-        to_foreman: foreman.trim(),
-        effective_on: transferDate,
-        reason: transferReason.trim(),
+      if (current) {
+        const d = new Date(`${transferDate}T00:00:00`);
+        d.setDate(d.getDate() - 1);
+        const end = d.toISOString().slice(0, 10);
+        const { error } = await dbAny
+          .from("employee_site_assignments")
+          .update({ effective_to: end < current.effective_from ? current.effective_from : end })
+          .eq("id", current.id);
+        if (error) throw error;
+      }
+      const { error } = await dbAny.from("employee_site_assignments").insert({
+        employee_id: empId,
+        site: site.trim(),
+        foreman: foreman.trim(),
+        project_id: project?.id ?? null,
+        foreman_user_id: project?.foreman_user_id ?? null,
+        effective_from: transferDate,
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      void refresh("employee_transfer_requests");
-      setSite("");
+      void refresh("employee_site_assignments");
       setForeman("");
-      setTransferReason("");
-      notify("Transfer request submitted for review.");
+      notify("Employee assigned to site.");
     },
     onError: (e) => notify(e.message, "warn"),
   });
@@ -401,10 +412,19 @@ export function WorkforceTab({
       </section>
       <section className={card + " space-y-4 p-4"}>
         <h3 className="flex items-center gap-2 font-bold text-navy">
-          <Clock3 size={17} />
-          Salary rate history
+          <ArrowLeftRight size={17} />
+          Add employee to site / move to another site
         </h3>
-        <div className="grid gap-3 sm:grid-cols-4">
+        <p className="text-xs text-muted-foreground">
+          Current site:{" "}
+          <b>
+            {employeeId
+              ? (currentAssignment.find((a) => a.employee_id === Number(employeeId))?.site ??
+                "Not assigned")
+              : "Select an employee"}
+          </b>
+        </p>
+        <div className="grid gap-3 sm:grid-cols-5">
           <select
             className={select}
             value={employeeId}
@@ -413,86 +433,18 @@ export function WorkforceTab({
             <option value="">Select employee</option>
             {employees.map((e) => (
               <option key={e.id} value={e.id}>
-                {e.name} · {e.trade}
+                {e.name} · {e.idNumber || e.trade}
               </option>
             ))}
           </select>
-          <input
-            className={input}
-            type="number"
-            min="0"
-            step="0.001"
-            placeholder="Hourly rate"
-            value={rate}
-            onChange={(e) => setRate(e.target.value)}
-          />
-          <input
-            className={input}
-            type="date"
-            value={rateDate}
-            onChange={(e) => setRateDate(e.target.value)}
-          />
-          <button
-            className={btnGold}
-            disabled={saveRate.isPending}
-            onClick={() => saveRate.mutate()}
-          >
-            <Plus size={15} />
-            Record rate
-          </button>
-        </div>
-        <div className="max-h-56 overflow-auto rounded-lg border border-border">
-          <table className="w-full text-left text-xs">
-            <thead className="sticky top-0 bg-navy-soft">
-              <tr>
-                <th className="p-2">Employee</th>
-                <th className="p-2">Effective from</th>
-                <th className="p-2 text-right">OMR / hour</th>
-                <th className="p-2">Recorded</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(salaries.data ?? []).map((r) => (
-                <tr className="border-t border-border" key={r.id}>
-                  <td className="p-2">
-                    {employees.find((e) => e.id === r.employee_id)?.name ??
-                      `Employee ${r.employee_id}`}
-                  </td>
-                  <td className="p-2">{r.effective_on}</td>
-                  <td className="p-2 text-right">{Number(r.hourly_rate).toFixed(3)}</td>
-                  <td className="p-2">{new Date(r.created_at).toLocaleDateString()}</td>
-                </tr>
-              ))}
-              {!salaries.data?.length && (
-                <tr>
-                  <td className="p-3 text-muted-foreground" colSpan={4}>
-                    No rate changes recorded yet. Existing historical rates are not inferred.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      <section className={card + " space-y-4 p-4"}>
-        <h3 className="flex items-center gap-2 font-bold text-navy">
-          <ArrowLeftRight size={17} />
-          Site assignments & transfer requests
-        </h3>
-        <p className="text-xs text-muted-foreground">
-          Current recorded assignment:{" "}
-          {selectedEmployee
-            ? (currentAssignment.find((a) => a.employee_id === selectedEmployee.id)?.site ??
-              "Unknown")
-            : "Select an employee above"}
-        </p>
-        <div className="grid gap-3 sm:grid-cols-4">
-          <input
-            className={input}
-            placeholder="Destination site"
-            value={site}
-            onChange={(e) => setSite(e.target.value)}
-          />
+          <select className={select} value={site} onChange={(e) => setSite(e.target.value)}>
+            <option value="">Select site / project</option>
+            {(projectsList.data ?? []).map((p) => (
+              <option key={p.id} value={p.name}>
+                {p.name}
+              </option>
+            ))}
+          </select>
           <input
             className={input}
             placeholder="Foreman"
@@ -506,57 +458,13 @@ export function WorkforceTab({
             onChange={(e) => setTransferDate(e.target.value)}
           />
           <button
-            className={btnOutline}
+            className={btnGold}
             disabled={saveTransfer.isPending}
             onClick={() => saveTransfer.mutate()}
           >
             <Plus size={15} />
-            Request transfer
+            Assign to site
           </button>
-          <input
-            className={input + " sm:col-span-4"}
-            placeholder="Reason (optional)"
-            value={transferReason}
-            onChange={(e) => setTransferReason(e.target.value)}
-          />
-        </div>
-        <div className="max-h-56 space-y-2 overflow-auto">
-          {(transfers.data ?? []).map((r) => (
-            <div
-              key={r.id}
-              className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3 text-xs"
-            >
-              <b className="text-navy">
-                {employees.find((e) => e.id === r.employee_id)?.name ?? `Employee ${r.employee_id}`}
-              </b>
-              <span>
-                {r.from_site || "Unknown"} → {r.to_site}
-              </span>
-              <span>{r.effective_on}</span>
-              <span className="font-bold">{r.status}</span>
-              {isAdmin && r.status === "PENDING" && (
-                <>
-                  <button
-                    className={btnOutline}
-                    onClick={() => reviewTransfer.mutate({ id: r.id, status: "APPROVED" })}
-                  >
-                    <Check size={14} />
-                    Approve
-                  </button>
-                  <button
-                    className={btnOutline}
-                    onClick={() => reviewTransfer.mutate({ id: r.id, status: "REJECTED" })}
-                  >
-                    <X size={14} />
-                    Reject
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
-          {!transfers.data?.length && (
-            <p className="text-xs text-muted-foreground">No transfer requests yet.</p>
-          )}
         </div>
         <div className="max-h-48 overflow-auto rounded-lg border border-border">
           <table className="w-full text-left text-xs">
