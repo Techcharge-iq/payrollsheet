@@ -118,9 +118,11 @@ export function WorkforceTab({
         .eq("singleton", true)
         .maybeSingle();
       if (error && !isMissingPayrollSettingsError(error)) throw error;
-      return (data as { overtime_multiplier: number | null } | null) ?? {
-        overtime_multiplier: null,
-      };
+      return (
+        (data as { overtime_multiplier: number | null } | null) ?? {
+          overtime_multiplier: null,
+        }
+      );
     },
   });
   const assignments = useQuery({
@@ -434,7 +436,7 @@ export function WorkforceTab({
             <option value="">Select employee</option>
             {employees.map((e) => (
               <option key={e.id} value={e.id}>
-                {e.name} · {e.idNumber || e.trade}
+                {e.name} · {e.id_number || e.trade}
               </option>
             ))}
           </select>
