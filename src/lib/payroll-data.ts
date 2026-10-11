@@ -122,6 +122,7 @@ export function useBatches(month?: string, enabled = true) {
           id: l.id,
           batch_id: l.batch_id,
           employee_id: l.employee_id,
+          foreman_user_id: l.foreman_user_id,
           foreman: l.foreman ?? "",
           hours: Number(l.hours),
           rate: Number(l.rate),
@@ -149,6 +150,8 @@ export function useBatches(month?: string, enabled = true) {
         id: b.id,
         month: b.month,
         site: b.site ?? "",
+        project_id: b.project_id,
+        foreman_user_id: b.foreman_user_id,
         foreman: b.foreman ?? "",
         lines: byBatch[b.id] ?? [],
         status: b.status as PayrollBatchStatus,
@@ -224,7 +227,9 @@ export function useSaveEmployee() {
   });
 }
 
-function isMissingPayrollSettingsError(error: { code?: string; message?: string; status?: number } | null) {
+function isMissingPayrollSettingsError(
+  error: { code?: string; message?: string; status?: number } | null,
+) {
   if (!error) return true;
   return (
     error.code === "PGRST116" ||
@@ -244,13 +249,19 @@ export function useSaveBatch(canDelete = false) {
         .eq("singleton", true)
         .maybeSingle();
       if (policyError && !isMissingPayrollSettingsError(policyError)) throw policyError;
-      const currentOvertimeMultiplier = (policyRow as { overtime_multiplier: number | null } | null)
-        ?.overtime_multiplier ?? null;
+      const currentOvertimeMultiplier =
+        (policyRow as { overtime_multiplier: number | null } | null)?.overtime_multiplier ?? null;
       let batchId = batch.id;
       if (batchId) {
         const { data, error } = await supabase
           .from("payroll_batches")
-          .update({ month: batch.month, site: batch.site, foreman: batch.foreman })
+          .update({
+            month: batch.month,
+            site: batch.site,
+            project_id: batch.project_id ?? null,
+            foreman: batch.foreman,
+            foreman_user_id: batch.foreman_user_id ?? null,
+          })
           .eq("id", batchId)
           .select("*")
           .single();
@@ -259,7 +270,13 @@ export function useSaveBatch(canDelete = false) {
       } else {
         const { data, error } = await supabase
           .from("payroll_batches")
-          .insert({ month: batch.month, site: batch.site, foreman: batch.foreman })
+          .insert({
+            month: batch.month,
+            site: batch.site,
+            project_id: batch.project_id ?? null,
+            foreman: batch.foreman,
+            foreman_user_id: batch.foreman_user_id ?? null,
+          })
           .select("*")
           .single();
         if (error) throw error;
@@ -293,6 +310,7 @@ export function useSaveBatch(canDelete = false) {
             ...(l.id ? { id: l.id } : {}),
             batch_id: batchId,
             employee_id: Number(l.employee_id),
+            foreman_user_id: l.foreman_user_id ?? batch.foreman_user_id ?? null,
             month: batch.month,
             foreman: l.foreman || batch.foreman,
             hours: regularHours + overtimeHours,

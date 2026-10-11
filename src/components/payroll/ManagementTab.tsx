@@ -147,8 +147,8 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
     onError: (error) => setProjectMessage({ text: displayError(error), error: true }),
   });
 
-  const users = usersQuery.data ?? [];
-  const projects = projectsQuery.data ?? [];
+  const users = useMemo(() => usersQuery.data ?? [], [usersQuery.data]);
+  const projects = useMemo(() => projectsQuery.data ?? [], [projectsQuery.data]);
   const activeForemen = foremenQuery.data ?? [];
   const managersProjects = managerProjectsQuery.data ?? [];
   const filteredUsers = useMemo(() => {
@@ -202,15 +202,15 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
   };
 
   const requestError =
-    usersQuery.error ??
-    projectsQuery.error ??
-    foremenQuery.error ??
-    managerProjectsQuery.error;
+    usersQuery.error ?? projectsQuery.error ?? foremenQuery.error ?? managerProjectsQuery.error;
 
   return (
     <div className="space-y-4">
       {requestError && (
-        <p role="alert" className="rounded-lg border border-danger/30 bg-danger/5 p-3 text-sm text-danger">
+        <p
+          role="alert"
+          className="rounded-lg border border-danger/30 bg-danger/5 p-3 text-sm text-danger"
+        >
           Could not load management data: {displayError(requestError)}
         </p>
       )}
@@ -288,25 +288,29 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
             <fieldset className="space-y-1 text-xs font-semibold text-slate-600 sm:col-span-2">
               <legend>Assigned projects</legend>
               <div className="max-h-24 space-y-1 overflow-auto rounded-lg border border-slate-300 bg-card p-2">
-                {projects.filter((project) => project.active).map((project) => (
-                  <label key={project.id} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={userDraft.projectIds.includes(project.id)}
-                      onChange={(event) =>
-                        setUserDraft({
-                          ...userDraft,
-                          projectIds: event.target.checked
-                            ? [...userDraft.projectIds, project.id]
-                            : userDraft.projectIds.filter((id) => id !== project.id),
-                        })
-                      }
-                    />
-                    {project.name}
-                  </label>
-                ))}
+                {projects
+                  .filter((project) => project.active)
+                  .map((project) => (
+                    <label key={project.id} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={userDraft.projectIds.includes(project.id)}
+                        onChange={(event) =>
+                          setUserDraft({
+                            ...userDraft,
+                            projectIds: event.target.checked
+                              ? [...userDraft.projectIds, project.id]
+                              : userDraft.projectIds.filter((id) => id !== project.id),
+                          })
+                        }
+                      />
+                      {project.name}
+                    </label>
+                  ))}
                 {!projects.some((project) => project.active) && (
-                  <span className="font-normal text-muted-foreground">Create an active project first.</span>
+                  <span className="font-normal text-muted-foreground">
+                    Create an active project first.
+                  </span>
                 )}
               </div>
             </fieldset>
@@ -352,11 +356,7 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
               disabled={saveUser.isPending || !projectsQuery.isSuccess || !foremenQuery.isSuccess}
             >
               <Check size={15} />
-              {saveUser.isPending
-                ? "Saving…"
-                : userDraft.userId
-                  ? "Save user"
-                  : "Invite user"}
+              {saveUser.isPending ? "Saving…" : userDraft.userId ? "Save user" : "Invite user"}
             </button>
           </div>
         </form>
@@ -460,7 +460,11 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
             </p>
           </div>
           {projectDraft.projectId && (
-            <button type="button" className={btnOutline} onClick={() => setProjectDraft(blankProject)}>
+            <button
+              type="button"
+              className={btnOutline}
+              onClick={() => setProjectDraft(blankProject)}
+            >
               <X size={14} /> Cancel edit
             </button>
           )}
@@ -541,13 +545,18 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
               onChange={(event) => setProjectDraft({ ...projectDraft, notes: event.target.value })}
             />
           </label>
-          <label className="flex items-center gap-2 self-end pb-2 text-xs font-semibold text-slate-600">
-            <input
-              type="checkbox"
-              checked={projectDraft.active}
-              onChange={(event) => setProjectDraft({ ...projectDraft, active: event.target.checked })}
-            />
-            Active project
+          <label className="space-y-1 text-xs font-semibold text-slate-600">
+            Project status
+            <select
+              className={select}
+              value={projectDraft.active ? "active" : "completed"}
+              onChange={(event) =>
+                setProjectDraft({ ...projectDraft, active: event.target.value === "active" })
+              }
+            >
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+            </select>
           </label>
           <div className="flex items-end">
             <button type="submit" className={btnPrimary} disabled={saveProject.isPending}>
@@ -619,7 +628,7 @@ export function ManagementTab({ currentUserId }: { currentUserId: string }) {
                             : "bg-slate-100 text-slate-600"
                         }`}
                       >
-                        {project.active ? "Active" : "Inactive"}
+                        {project.active ? "Active" : "Completed"}
                       </span>
                     </td>
                     <td className="px-3 py-2">
