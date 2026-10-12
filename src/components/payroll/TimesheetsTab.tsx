@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CalendarDays,
   Check,
+  Clock3,
   ChevronDown,
   Copy,
   MapPin,
@@ -15,6 +16,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
 import { dbAny } from "@/integrations/supabase/external-client";
 import { reviewDailyAttendance } from "@/lib/attendance-review.functions";
@@ -24,6 +26,7 @@ import { projectAccessError } from "@/lib/project-access";
 import { MonthlyAttendanceDialog } from "./MonthlyAttendanceDialog";
 import { TimeControl } from "./TimeControl";
 import { btnGold, btnOutline, card, input, select } from "./ui";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface Props {
   employees: Employee[];
@@ -152,6 +155,187 @@ function hoursFor(draft: AttendanceDraft) {
   return Math.max(0, (end - start) / 60 - (Number(draft.breakHours) || 0));
 }
 
+function AttendanceSummaryCard({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: number | string;
+  icon: LucideIcon;
+}) {
+  return (
+    <article className={`${card} flex min-w-0 items-center justify-between gap-2 px-3 py-2.5`}>
+      <div className="min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+          {label}
+        </p>
+        <p className="mt-1 truncate font-display text-lg font-extrabold tabular-nums text-navy">
+          {value}
+          {label === "Total hours" ? " hrs" : label === "Selected employees" ? " people" : ""}
+        </p>
+      </div>
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+        <Icon size={16} aria-hidden="true" />
+      </span>
+    </article>
+  );
+}
+
+function MobileAttendanceCard({
+  employee,
+  row,
+  visibleColumns,
+  assignedExisting,
+  onSelect,
+  onUpdate,
+  totalHours,
+}: {
+  employee: Employee;
+  row: AttendanceDraft;
+  visibleColumns: Record<AttendanceColumn, boolean>;
+  assignedExisting: boolean;
+  onSelect: () => void;
+  onUpdate: (patch: Partial<AttendanceDraft>) => void;
+  totalHours: number;
+}) {
+  const workedToday = worked(row.status);
+  const statusStyle =
+    row.status === "PRESENT"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : row.status === "ABSENT"
+        ? "border-rose-200 bg-rose-50 text-rose-800"
+        : row.status === "HALF_DAY"
+          ? "border-amber-200 bg-amber-50 text-amber-800"
+          : row.status === "LEAVE"
+            ? "border-sky-200 bg-sky-50 text-sky-800"
+            : "border-slate-200 bg-white text-slate-700";
+
+  return (
+    <article className="rounded-lg border border-border bg-white p-3 shadow-sm">
+      <div className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          checked
+          disabled={assignedExisting}
+          onChange={onSelect}
+          aria-label={`Select ${employee.name}`}
+          className="mt-1 h-4 w-4 shrink-0 accent-[var(--navy)] disabled:opacity-50"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-navy">{employee.name}</p>
+          <p className="truncate text-[11px] text-muted-foreground">
+            {employee.trade} · {employee.id_number || `ID ${employee.id}`}
+          </p>
+        </div>
+        <select
+          value={row.status}
+          onChange={(event) => onUpdate({ status: event.target.value as AttendanceStatus })}
+          aria-label={`${employee.name} status`}
+          className={`${select} h-8 w-auto min-w-24 rounded border px-2 py-0 text-[11px] ${statusStyle}`}
+        >
+          {ATTENDANCE_STATUSES.map((status) => (
+            <option key={status.value} value={status.value}>
+              {status.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        {visibleColumns.inTime && (
+          <label className="col-span-2 min-w-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            In time
+            <TimeControl
+              value={row.inTime}
+              disabled={!workedToday}
+              onChange={(value) => onUpdate({ inTime: value })}
+              label={`${employee.name} clock-in time`}
+              compact
+            />
+          </label>
+        )}
+        {visibleColumns.outTime && (
+          <label className="col-span-2 min-w-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Out time
+            <TimeControl
+              value={row.outTime}
+              disabled={!workedToday}
+              onChange={(value) => onUpdate({ outTime: value })}
+              label={`${employee.name} clock-out time`}
+              compact
+            />
+          </label>
+        )}
+        {visibleColumns.breakHours && (
+          <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Break (hrs)
+            <input
+              type="number"
+              min="0"
+              step="0.25"
+              value={row.breakHours}
+              disabled={!workedToday}
+              onChange={(event) => onUpdate({ breakHours: event.target.value })}
+              aria-label={`${employee.name} break hours`}
+              className={`${input} h-9 px-2 py-1 text-sm disabled:opacity-50`}
+            />
+          </label>
+        )}
+        {visibleColumns.overtime && (
+          <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Overtime (hrs)
+            <input
+              type="number"
+              min="0"
+              step="0.25"
+              value={row.overtime}
+              disabled={!workedToday}
+              onChange={(event) => onUpdate({ overtime: event.target.value })}
+              aria-label={`${employee.name} overtime hours`}
+              className={`${input} h-9 px-2 py-1 text-sm disabled:opacity-50`}
+            />
+          </label>
+        )}
+        {!visibleColumns.inTime || !visibleColumns.outTime ? (
+          <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Total hours
+            <input
+              type="number"
+              min="0.25"
+              max="24"
+              step="0.25"
+              value={row.manualHours}
+              disabled={!workedToday}
+              onChange={(event) => onUpdate({ manualHours: event.target.value })}
+              aria-label={`${employee.name} total hours`}
+              className={`${input} h-9 px-2 py-1 text-sm font-semibold disabled:opacity-50`}
+            />
+          </label>
+        ) : (
+          <div className="flex items-end justify-between rounded-md bg-slate-50 px-2.5 py-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              Total hours
+            </span>
+            <span className="text-sm font-bold tabular-nums text-navy">
+              {totalHours.toFixed(2)}
+            </span>
+          </div>
+        )}
+      </div>
+      <label className="mt-2 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        Notes
+        <input
+          value={row.notes}
+          onChange={(event) => onUpdate({ notes: event.target.value })}
+          aria-label={`${employee.name} notes`}
+          placeholder="Add a note"
+          className={`${input} h-9 px-2 py-1 text-sm`}
+        />
+      </label>
+    </article>
+  );
+}
+
 export function TimesheetsTab({
   employees,
   role,
@@ -161,6 +345,7 @@ export function TimesheetsTab({
   notify,
   onDirtyChange,
 }: Props) {
+  const isMobile = useIsMobile();
   const [workDate, setWorkDate] = useState(today);
   const previousDate = previousCalendarDate(workDate);
   const timesheetsQuery = useTimesheetsForDate(workDate);
@@ -260,9 +445,10 @@ export function TimesheetsTab({
   const [dirty, setDirty] = useState(false);
   const [employeePickerOpen, setEmployeePickerOpen] = useState(false);
   const [employeeSearch, setEmployeeSearch] = useState("");
+  const [attendanceSearch, setAttendanceSearch] = useState("");
   const [copyPickerOpen, setCopyPickerOpen] = useState(false);
   const [monthlyAttendanceOpen, setMonthlyAttendanceOpen] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(role !== "foreman");
   const [bulkInTime, setBulkInTime] = useState("08:00");
   const [bulkOutTime, setBulkOutTime] = useState("17:00");
   const [bulkBreakHours, setBulkBreakHours] = useState("1");
@@ -343,6 +529,16 @@ export function TimesheetsTab({
       }),
     [employeeById, selectedIds],
   );
+  const filteredAttendanceEmployees = useMemo(() => {
+    const query = attendanceSearch.trim().toLowerCase();
+    if (!query) return selectedEmployees;
+    return selectedEmployees.filter((employee) =>
+      [employee.name, employee.trade, employee.id_number, String(employee.id)]
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [attendanceSearch, selectedEmployees]);
   const applyRecordedAssignment = () => {
     const matches = (assignmentsQuery.data ?? []).filter(
       (a) =>
@@ -1178,13 +1374,8 @@ export function TimesheetsTab({
         )}
       </section>
       {sheetOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Daily timesheet"
-          className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/40 backdrop-blur-sm sm:items-center sm:p-4"
-        >
-          <div className="flex max-h-[94vh] w-full max-w-6xl flex-col gap-3 overflow-y-auto rounded-t-2xl bg-background p-3 shadow-2xl sm:rounded-2xl sm:p-5">
+        <section className="attendance-sheet w-full" aria-label="Daily timesheet editor">
+          <div className="attendance-dialog flex w-full flex-col gap-3 rounded-xl bg-background p-0 shadow-none">
             <header className="sticky top-0 z-10 -mx-3 -mt-3 flex items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:-mt-5 sm:px-5">
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
@@ -1207,831 +1398,921 @@ export function TimesheetsTab({
                 <X size={16} /> Close
               </button>
             </header>
-      <div className={`${card} attendance-batch-toolbar attendance-scroll-reveal`}>
-        <label className="attendance-batch-field">
-          Attendance date
-          <input
-            type="date"
-            value={workDate}
-            onChange={(event) => {
-              const nextDate = event.target.value;
-              if (!nextDate || nextDate === workDate) return;
-              if (dirty && !window.confirm("Discard unsaved attendance batch changes?")) return;
-              pendingDateEdit.current = {
-                batchKey: editingKey,
-                site,
-                foreman,
-                projectId: selectedProjectId,
-                foremanId: selectedForemanId,
-              };
-              setDirty(false);
-              setWorkDate(nextDate);
-              setCopyPickerOpen(false);
-            }}
-            className={`${input} rounded-md px-2 py-1 text-xs`}
-          />
-        </label>
-        {role !== "foreman" && (
-          <>
-            <button
-              type="button"
-              className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
-              disabled={!selectedIds.length || assignmentsQuery.isLoading}
-              onClick={applyRecordedAssignment}
-            >
-              Use recorded assignment
-            </button>
-            <label className="attendance-batch-field">
-              Site / project
-              <select
-                required
-                value={selectedProjectId ?? ""}
-                onChange={(event) => {
-                  if (dirty && !confirmDiscard()) return;
-                  const project = projects.find((item) => item.id === event.target.value);
-                  setSelectedProjectId(project?.id ?? null);
-                  setSite(project?.name ?? "");
-                  const assignedForeman = foremanOptions.find(
-                    (option) => option.userId === project?.foreman_user_id,
-                  );
-                  setForeman(assignedForeman?.name ?? "");
-                  setSelectedForemanId(assignedForeman?.userId ?? null);
-                  setSelectedIds([]);
-                  setAttendance({});
-                  setEditingKey(null);
-                  setDirty(false);
-                }}
-                className={`${select} rounded-md px-2 py-1 text-xs`}
-              >
-                <option value="">Choose an existing project</option>
-                {visibleProjects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                    {project.active ? "" : " (completed)"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="attendance-batch-field">
-              Foreman
-              <select
-                required
-                value={
-                  selectedForemanId ??
-                  foremanOptions.find((option) => !option.userId && option.name === foreman)
-                    ?.value ??
-                  ""
-                }
-                onChange={(event) => {
-                  const option = foremanOptions.find((item) => item.value === event.target.value);
-                  setForeman(option?.name ?? "");
-                  setSelectedForemanId(option?.userId ?? null);
-                  setDirty(true);
-                }}
-                className={`${select} rounded-md px-2 py-1 text-xs`}
-              >
-                <option value="">Choose an existing foreman</option>
-                {foremanOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="attendance-batch-actions">
-              <button
-                type="button"
-                onClick={() => setMonthlyAttendanceOpen(true)}
-                className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
-              >
-                <CalendarDays size={13} /> Monthly employee entry
-              </button>
-              <button
-                type="button"
-                onClick={copyPreviousDay}
-                className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
-              >
-                <Copy size={13} /> Copy previous day
-              </button>
-              <button
-                type="button"
-                onClick={startNewBatch}
-                className={`${btnGold} rounded-md px-2.5 py-1 text-xs`}
-              >
-                <Plus size={14} /> New batch
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {timesheetsQuery.error && (
-        <p className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm font-medium text-danger">
-          <AlertTriangle size={15} /> Could not load attendance: {timesheetsQuery.error.message}
-        </p>
-      )}
-      {role !== "foreman" && projectsQuery.error && (
-        <p
-          role="alert"
-          className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
-        >
-          Could not load projects: {projectsQuery.error.message}
-        </p>
-      )}
-      {role !== "foreman" && foremenQuery.error && (
-        <p
-          role="alert"
-          className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
-        >
-          Could not load foremen: {foremenQuery.error.message}
-        </p>
-      )}
-      {role !== "foreman" && assignmentsQuery.error && (
-        <p
-          role="alert"
-          className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
-        >
-          Could not load employee assignments: {projectAccessError(assignmentsQuery.error, "load")}
-        </p>
-      )}
-
-      {timesheetsQuery.isLoading ? (
-        <div className={`${card} p-8 text-center text-sm text-muted-foreground`}>
-          Loading attendance for {workDate}…
-        </div>
-      ) : (
-        <>
-          <section className="grid grid-cols-3 gap-2" aria-label="Daily attendance summary">
-            {[
-              { label: "Marked", value: markedCount },
-              { label: "Present", value: presentCount },
-              { label: "Hours", value: recordedHours.toFixed(2) },
-            ].map(({ label, value }) => (
-              <article key={label} className={`${card} px-3 py-2.5`}>
-                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-                  {label}
-                </p>
-                <p className="mt-1 font-display text-lg font-extrabold tabular-nums text-navy">
-                  {value}
-                  {label === "Hours" ? " hrs" : ""}
-                </p>
-              </article>
-            ))}
-          </section>
-          {["admin", "hr", "manager"].includes(role) && (
-            <section className={`${card} space-y-3 p-3`} aria-label="AI attendance review">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h3 className="flex items-center gap-2 text-sm font-bold text-navy">
-                    <Sparkles size={15} /> AI attendance review
-                  </h3>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Check saved attendance for missing active employees and unusual hour totals.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
-                  disabled={attendanceReview.isPending || timesheetsQuery.isLoading}
-                  onClick={() => attendanceReview.mutate()}
-                >
-                  <Sparkles size={14} />
-                  {attendanceReview.isPending ? "Reviewing…" : "Review attendance"}
-                </button>
-              </div>
-              {attendanceReview.error && (
-                <p role="alert" className="text-sm text-danger">
-                  Could not review attendance: {attendanceReview.error.message}
-                </p>
-              )}
-              {attendanceReview.data?.workDate === workDate && (
-                <div className="space-y-2 rounded-md bg-muted/30 p-3 text-sm">
-                  <p>{attendanceReview.data.summary}</p>
-                  <p className="font-semibold">
-                    Missing records ({attendanceReview.data.missingEmployees.length})
-                  </p>
-                  {attendanceReview.data.missingEmployees.length ? (
-                    <ul className="list-inside list-disc">
-                      {attendanceReview.data.missingEmployees.map((employee) => (
-                        <li key={employee.id}>{employee.name}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      All active employees have an attendance record for this date.
-                    </p>
-                  )}
-                  <p className="font-semibold">
-                    Unusual hours ({attendanceReview.data.unusualHours.length})
-                  </p>
-                  {attendanceReview.data.unusualHours.length ? (
-                    <ul className="list-inside list-disc">
-                      {attendanceReview.data.unusualHours.map((item) => (
-                        <li key={item.employeeId}>
-                          {item.employeeName}: {item.totalHours} hrs ({item.severity}) —{" "}
-                          {item.reason}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      No unusual hour totals were flagged.
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    AI results are suggestions; verify records before payroll is processed.
-                  </p>
-                </div>
-              )}
-            </section>
-          )}
-          <div className="space-y-2 attendance-scroll-reveal">
-            {editingKey && (
-              <p className="px-1 text-xs font-semibold text-navy">Editing saved attendance batch</p>
-            )}
-
-            {copyPickerOpen && (
-              <div className="rounded-xl border border-gold/40 bg-gold/10 p-3">
-                <p className="mb-2 text-xs font-bold text-navy">
-                  Choose a batch from {previousDate} to copy. It will be staged for {workDate};
-                  nothing is saved until you press Save batch.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {previousBatches.map((batch) => (
-                    <button
-                      key={batch.key}
-                      type="button"
-                      onClick={() => loadCopiedBatch(batch)}
-                      className={btnOutline}
+            <div className={`${card} attendance-batch-toolbar attendance-scroll-reveal`}>
+              <label className="attendance-batch-field">
+                Attendance date
+                <input
+                  type="date"
+                  value={workDate}
+                  onChange={(event) => {
+                    const nextDate = event.target.value;
+                    if (!nextDate || nextDate === workDate) return;
+                    if (dirty && !window.confirm("Discard unsaved attendance batch changes?"))
+                      return;
+                    pendingDateEdit.current = {
+                      batchKey: editingKey,
+                      site,
+                      foreman,
+                      projectId: selectedProjectId,
+                      foremanId: selectedForemanId,
+                    };
+                    setDirty(false);
+                    setWorkDate(nextDate);
+                    setCopyPickerOpen(false);
+                  }}
+                  className={`${input} rounded-md px-2 py-1 text-xs`}
+                />
+              </label>
+              {role !== "foreman" && (
+                <>
+                  <button
+                    type="button"
+                    className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
+                    disabled={!selectedIds.length || assignmentsQuery.isLoading}
+                    onClick={applyRecordedAssignment}
+                  >
+                    Use recorded assignment
+                  </button>
+                  <label className="attendance-batch-field">
+                    Site / project
+                    <select
+                      required
+                      value={selectedProjectId ?? ""}
+                      onChange={(event) => {
+                        if (dirty && !confirmDiscard()) return;
+                        const project = projects.find((item) => item.id === event.target.value);
+                        setSelectedProjectId(project?.id ?? null);
+                        setSite(project?.name ?? "");
+                        const assignedForeman = foremanOptions.find(
+                          (option) => option.userId === project?.foreman_user_id,
+                        );
+                        setForeman(assignedForeman?.name ?? "");
+                        setSelectedForemanId(assignedForeman?.userId ?? null);
+                        setSelectedIds([]);
+                        setAttendance({});
+                        setEditingKey(null);
+                        setDirty(false);
+                      }}
+                      className={`${select} rounded-md px-2 py-1 text-xs`}
                     >
-                      <Copy size={14} />
-                      {batch.site} · {batch.foreman} · {batch.entries.length} workers
+                      <option value="">Choose an existing project</option>
+                      {visibleProjects.map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name}
+                          {project.active ? "" : " (completed)"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="attendance-batch-field">
+                    Foreman
+                    <select
+                      required
+                      value={
+                        selectedForemanId ??
+                        foremanOptions.find((option) => !option.userId && option.name === foreman)
+                          ?.value ??
+                        ""
+                      }
+                      onChange={(event) => {
+                        const option = foremanOptions.find(
+                          (item) => item.value === event.target.value,
+                        );
+                        setForeman(option?.name ?? "");
+                        setSelectedForemanId(option?.userId ?? null);
+                        setDirty(true);
+                      }}
+                      className={`${select} rounded-md px-2 py-1 text-xs`}
+                    >
+                      <option value="">Choose an existing foreman</option>
+                      {foremanOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="attendance-batch-actions">
+                    <button
+                      type="button"
+                      onClick={() => setMonthlyAttendanceOpen(true)}
+                      className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
+                    >
+                      <CalendarDays size={13} /> Monthly employee entry
                     </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative w-full max-w-xs">
-                <button
-                  type="button"
-                  onClick={() => setEmployeePickerOpen((open) => !open)}
-                  aria-expanded={employeePickerOpen}
-                  className={`${input} flex h-8 items-center justify-between rounded-md px-2 py-1 text-left text-xs`}
-                >
-                  <span>
-                    {selectedCount
-                      ? `${selectedCount} employee${selectedCount === 1 ? "" : "s"} selected`
-                      : "Select employees…"}
-                  </span>
-                  <ChevronDown size={16} />
-                </button>
-                {employeePickerOpen && (
-                  <div className="absolute z-30 mt-1 w-full rounded-md border border-border bg-card p-2 shadow-lg">
-                    <div className="relative mb-2">
-                      <Search
-                        size={15}
-                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                      />
-                      <input
-                        autoFocus
-                        value={employeeSearch}
-                        onChange={(event) => setEmployeeSearch(event.target.value)}
-                        placeholder="Find employee by name, trade or ID"
-                        className={`${input} pl-9`}
-                      />
-                    </div>
-                    <div className="max-h-64 overflow-y-auto">
-                      {activeEmployees
-                        .filter((employee) => {
-                          const query = employeeSearch.trim().toLowerCase();
-                          return (
-                            !query ||
-                            [employee.name, employee.trade, employee.id_number, String(employee.id)]
-                              .join(" ")
-                              .toLowerCase()
-                              .includes(query)
-                          );
-                        })
-                        .map((employee) => {
-                          const checked = selectedIds.includes(employee.id);
-                          const assigned = timesheets.find(
-                            (entry) => entry.employee_id === employee.id,
-                          );
-                          const assignedOutsideBatch =
-                            assigned &&
-                            (!editingKey ||
-                              batchKey(assigned.site, assigned.foreman) !== editingKey);
-                          const lockedInBatch =
-                            checked &&
-                            editingKey !== null &&
-                            assigned &&
-                            batchKey(assigned.site, assigned.foreman) === editingKey;
-                          return (
-                            <label
-                              key={employee.id}
-                              className={`flex min-h-11 items-center gap-3 rounded-lg px-2 py-2 text-sm ${
-                                assignedOutsideBatch
-                                  ? "cursor-not-allowed opacity-50"
-                                  : "cursor-pointer hover:bg-navy-soft"
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                disabled={Boolean(
-                                  (assignedOutsideBatch && !checked) || lockedInBatch,
-                                )}
-                                onChange={() => toggleEmployee(employee)}
-                                className="h-4 w-4 accent-[var(--navy)]"
-                              />
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate font-semibold text-navy">
-                                  {employee.name}
-                                </span>
-                                <span className="block text-[11px] text-muted-foreground">
-                                  {employee.trade} · ID {employee.id_number || employee.id}
-                                </span>
-                              </span>
-                              {assignedOutsideBatch && (
-                                <span className="max-w-36 text-right text-[10px] font-semibold text-warn">
-                                  Assigned: {assigned.site} · {assigned.foreman}
-                                </span>
-                              )}
-                              {lockedInBatch && (
-                                <span className="text-[10px] font-bold text-money">
-                                  In this batch
-                                </span>
-                              )}
-                            </label>
-                          );
-                        })}
-                      {filteredPickerEmployees.length === 0 && (
-                        <p className="px-3 py-4 text-center text-xs text-muted-foreground">
-                          No available employees match. Workers already assigned today are locked to
-                          their existing site batch.
-                        </p>
-                      )}
-                    </div>
-                    <div className="mt-2 flex justify-between gap-2 border-t border-border pt-2">
-                      <button
-                        type="button"
-                        onClick={toggleSelectAllAvailable}
-                        disabled={!filteredPickerEmployees.length}
-                        className={btnOutline}
-                      >
-                        {filteredPickerEmployees.length > 0 &&
-                        filteredPickerEmployees.every((employee) =>
-                          selectedIds.includes(employee.id),
-                        )
-                          ? "Clear available"
-                          : "Select all available"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEmployeePickerOpen(false);
-                          setEmployeeSearch("");
-                        }}
-                        className={btnOutline}
-                      >
-                        Done
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={copyPreviousDay}
+                      className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
+                    >
+                      <Copy size={13} /> Copy previous day
+                    </button>
+                    <button
+                      type="button"
+                      onClick={startNewBatch}
+                      className={`${btnGold} rounded-md px-2.5 py-1 text-xs`}
+                    >
+                      <Plus size={14} /> New batch
+                    </button>
                   </div>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={toggleSelectAllAvailable}
-                disabled={!filteredPickerEmployees.length}
-                className={`${btnOutline} h-8 px-2.5 py-1 text-xs`}
-              >
-                {filteredPickerEmployees.length > 0 &&
-                filteredPickerEmployees.every((employee) => selectedIds.includes(employee.id))
-                  ? "Clear available"
-                  : "Select all"}
-              </button>
+                </>
+              )}
             </div>
 
-            {duplicateAssignments.length > 0 && (
-              <p className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs font-medium text-danger">
-                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                {duplicateAssignments
-                  .map(
-                    ({ employee, assigned }) =>
-                      `${employee.name} is already assigned to ${assigned.site} · ${assigned.foreman}`,
-                  )
-                  .join("; ")}
+            {timesheetsQuery.error && (
+              <p className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm font-medium text-danger">
+                <AlertTriangle size={15} /> Could not load attendance:{" "}
+                {timesheetsQuery.error.message}
+              </p>
+            )}
+            {role !== "foreman" && projectsQuery.error && (
+              <p
+                role="alert"
+                className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
+              >
+                Could not load projects: {projectsQuery.error.message}
+              </p>
+            )}
+            {role !== "foreman" && foremenQuery.error && (
+              <p
+                role="alert"
+                className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
+              >
+                Could not load foremen: {foremenQuery.error.message}
+              </p>
+            )}
+            {role !== "foreman" && assignmentsQuery.error && (
+              <p
+                role="alert"
+                className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
+              >
+                Could not load employee assignments:{" "}
+                {projectAccessError(assignmentsQuery.error, "load")}
               </p>
             )}
 
-            <div className="attendance-scroll-reveal flex flex-wrap items-end justify-between gap-3 rounded-lg border border-border bg-slate-50 p-2.5">
-              <div className="flex flex-wrap items-end gap-2">
-                <label className="text-[10px] font-bold uppercase text-slate-500">
-                  In time
-                  <TimeControl
-                    value={bulkInTime}
-                    onChange={setBulkInTime}
-                    label="Bulk in time"
-                    compact
-                  />
-                </label>
-                <label className="text-[10px] font-bold uppercase text-slate-500">
-                  Out time
-                  <TimeControl
-                    value={bulkOutTime}
-                    onChange={setBulkOutTime}
-                    label="Bulk out time"
-                    compact
-                  />
-                </label>
-                <label className="text-[10px] font-bold uppercase text-slate-500">
-                  Break (hrs)
-                  <input
-                    type="number"
-                    min="0"
-                    max="23.75"
-                    step="0.25"
-                    value={bulkBreakHours}
-                    onChange={(event) => setBulkBreakHours(event.target.value)}
-                    aria-label="Bulk break duration in hours"
-                    className={`${input} h-8 w-24 rounded px-2 py-1 text-xs`}
-                  />
-                </label>
-                <div className="flex flex-wrap gap-1">
-                  {SHIFT_PRESETS.map(({ start, end, label }) => (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => {
-                        setBulkInTime(start);
-                        setBulkOutTime(end);
-                      }}
-                      className={`${btnOutline} h-8 px-2 py-1 text-[11px]`}
-                    >
-                      {label}
-                    </button>
+            {timesheetsQuery.isLoading ? (
+              <div className={`${card} p-8 text-center text-sm text-muted-foreground`}>
+                Loading attendance for {workDate}…
+              </div>
+            ) : (
+              <>
+                <section
+                  className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+                  aria-label="Daily attendance summary"
+                >
+                  {[
+                    { label: "Marked", value: markedCount, icon: Users },
+                    { label: "Present", value: presentCount, icon: Check },
+                    { label: "Total hours", value: recordedHours.toFixed(2), icon: Clock3 },
+                    { label: "Selected employees", value: selectedCount, icon: Users },
+                  ].map(({ label, value, icon }) => (
+                    <AttendanceSummaryCard key={label} label={label} value={value} icon={icon} />
                   ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={applySchedule}
-                  disabled={!selectedCount}
-                  className={`${btnOutline} h-9 px-3 py-1 text-xs`}
-                >
-                  <Check size={13} /> Apply to selected
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                {dirty && (
-                  <button
-                    type="button"
-                    onClick={startNewBatch}
-                    className={`${btnOutline} h-8 rounded-md px-2.5 py-1 text-xs`}
-                  >
-                    <X size={13} /> Cancel
-                  </button>
-                )}
-                <button
-                  type="button"
-                  disabled={saving || !selectedCount || Boolean(duplicateAssignments.length)}
-                  onClick={() => void saveBatch()}
-                  className={`${btnGold} h-8 rounded-md px-3 py-1 text-xs`}
-                >
-                  {saving ? "Saving…" : "Save Changes"}
-                </button>
-              </div>
-            </div>
-
-            <div className="attendance-scroll-reveal space-y-2 overflow-x-auto rounded-md border border-border bg-card p-2">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border pb-2">
-                <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                  Attendance columns
-                </span>
-                {ATTENDANCE_COLUMNS.map(({ value, label }) => (
-                  <label
-                    key={value}
-                    className="inline-flex min-h-8 items-center gap-1.5 text-xs font-medium text-slate-600"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns[value]}
-                      onChange={() => toggleColumn(value)}
-                      className="h-4 w-4 accent-[var(--navy)]"
-                    />
-                    {label}
-                  </label>
-                ))}
-                {(!visibleColumns.inTime || !visibleColumns.outTime) && (
-                  <span className="text-[11px] font-semibold text-money">
-                    Enter total hours directly; hidden shift times are calculated on save.
-                  </span>
-                )}
-              </div>
-              <table
-                className="w-full table-fixed border-collapse text-xs"
-                style={{
-                  minWidth: `${720 + Number(visibleColumns.inTime) * 208 + Number(visibleColumns.outTime) * 208 + Number(visibleColumns.breakHours) * 80 + Number(visibleColumns.overtime) * 96}px`,
-                }}
-              >
-                <thead className="bg-slate-100">
-                  <tr className="h-8 border-b border-border text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    <th className="w-9 px-2 text-center" aria-label="Selected" />
-                    <th className="w-32 px-2 text-left">Status</th>
-                    <th className="w-36 px-2 text-left">Employee</th>
-                    <th className="w-36 px-2 text-left">Role / Phone</th>
-                    {visibleColumns.inTime && <th className="w-52 px-2 text-left">In</th>}
-                    {visibleColumns.outTime && <th className="w-52 px-2 text-left">Out</th>}
-                    {visibleColumns.breakHours && (
-                      <th className="w-20 px-2 text-left">Break (hrs)</th>
-                    )}
-                    {visibleColumns.overtime && (
-                      <th className="w-24 px-2 text-left">Overtime (hrs)</th>
-                    )}
-                    <th className="w-28 px-2 text-left">Total hrs</th>
-                    <th className="w-16 px-2 text-left">Notes</th>
-                    <th className="w-12 px-2 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {selectedEmployees.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={
-                          7 +
-                          Number(visibleColumns.inTime) +
-                          Number(visibleColumns.outTime) +
-                          Number(visibleColumns.breakHours) +
-                          Number(visibleColumns.overtime)
-                        }
-                        className="h-14 px-3 text-center text-xs text-muted-foreground"
+                </section>
+                {["admin", "hr", "manager"].includes(role) && (
+                  <section className={`${card} space-y-3 p-3`} aria-label="AI attendance review">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 className="flex items-center gap-2 text-sm font-bold text-navy">
+                          <Sparkles size={15} /> AI attendance review
+                        </h3>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Check saved attendance for missing active employees and unusual hour
+                          totals.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
+                        disabled={attendanceReview.isPending || timesheetsQuery.isLoading}
+                        onClick={() => attendanceReview.mutate()}
                       >
-                        Select employees above to add them to this attendance batch.
-                      </td>
-                    </tr>
-                  ) : (
-                    selectedEmployees.map((employee) => {
-                      const row = attendance[employee.id] ?? defaultAttendance();
-                      const workedToday = worked(row.status);
-                      const assignedExisting =
-                        editingKey !== null &&
-                        timesheets.some(
-                          (entry) =>
-                            entry.employee_id === employee.id &&
-                            batchKey(entry.site, entry.foreman) === editingKey,
-                        );
-                      const statusStyle =
-                        row.status === "PRESENT"
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                          : row.status === "ABSENT"
-                            ? "border-rose-200 bg-rose-50 text-rose-800"
-                            : row.status === "HALF_DAY"
-                              ? "border-amber-200 bg-amber-50 text-amber-800"
-                              : row.status === "LEAVE"
-                                ? "border-sky-200 bg-sky-50 text-sky-800"
-                                : "border-slate-200 bg-white text-slate-700";
-                      return (
-                        <tr key={employee.id} className="h-11 hover:bg-slate-50/70">
-                          <td className="px-2 text-center">
-                            <input
-                              type="checkbox"
-                              checked
-                              disabled={assignedExisting}
-                              onChange={() => toggleEmployee(employee)}
-                              aria-label={`Select ${employee.name}`}
-                              className="h-3.5 w-3.5 accent-[var(--navy)] disabled:opacity-50"
-                            />
-                          </td>
-                          <td className="px-2">
-                            <select
-                              value={row.status}
-                              onChange={(event) =>
-                                updateAttendance(employee.id, {
-                                  status: event.target.value as AttendanceStatus,
-                                })
-                              }
-                              aria-label={`${employee.name} status`}
-                              className={`${select} h-7 rounded border px-1.5 py-0 text-[11px] ${statusStyle}`}
-                            >
-                              {ATTENDANCE_STATUSES.map((status) => (
-                                <option key={status.value} value={status.value}>
-                                  {status.label}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td
-                            className="truncate px-2 font-semibold text-navy"
-                            title={employee.name}
-                          >
-                            {employee.name}
-                          </td>
-                          <td
-                            className="truncate px-2 text-[11px] text-slate-500"
-                            title={`${employee.trade} / ${employee.id_number || employee.id}`}
-                          >
-                            {employee.trade} / {employee.id_number || `ID ${employee.id}`}
-                          </td>
-                          {visibleColumns.inTime && (
-                            <td className="px-2">
-                              <TimeControl
-                                value={row.inTime}
-                                disabled={!workedToday}
-                                onChange={(value) =>
-                                  updateAttendance(employee.id, { inTime: value })
-                                }
-                                label={`${employee.name} clock-in time`}
-                                compact
-                              />
-                            </td>
-                          )}
-                          {visibleColumns.outTime && (
-                            <td className="px-2">
-                              <TimeControl
-                                value={row.outTime}
-                                disabled={!workedToday}
-                                onChange={(value) =>
-                                  updateAttendance(employee.id, { outTime: value })
-                                }
-                                label={`${employee.name} clock-out time`}
-                                compact
-                              />
-                            </td>
-                          )}
-                          {visibleColumns.breakHours && (
-                            <td className="px-2">
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.25"
-                                value={row.breakHours}
-                                disabled={!workedToday}
-                                onChange={(event) =>
-                                  updateAttendance(employee.id, { breakHours: event.target.value })
-                                }
-                                aria-label={`${employee.name} break hours`}
-                                className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
-                              />
-                            </td>
-                          )}
-                          {visibleColumns.overtime && (
-                            <td className="px-2">
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.25"
-                                value={row.overtime}
-                                disabled={!workedToday}
-                                onChange={(event) =>
-                                  updateAttendance(employee.id, { overtime: event.target.value })
-                                }
-                                aria-label={`${employee.name} overtime hours`}
-                                className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
-                              />
-                            </td>
-                          )}
-                          <td className="px-2">
-                            {!visibleColumns.inTime || !visibleColumns.outTime ? (
-                              <input
-                                type="number"
-                                min="0.25"
-                                max="24"
-                                step="0.25"
-                                value={row.manualHours}
-                                disabled={!workedToday}
-                                onChange={(event) =>
-                                  updateAttendance(employee.id, { manualHours: event.target.value })
-                                }
-                                aria-label={`${employee.name} total hours`}
-                                className={`${input} h-9 rounded px-2 py-1 text-sm font-bold tabular-nums disabled:opacity-50`}
-                              />
-                            ) : (
-                              <span className="text-xs font-semibold tabular-nums text-navy">
-                                {scheduledHours(row).toFixed(2)}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-2">
-                            <input
-                              value={row.notes}
-                              onChange={(event) =>
-                                updateAttendance(employee.id, { notes: event.target.value })
-                              }
-                              aria-label={`${employee.name} notes`}
-                              placeholder="—"
-                              className={`${input} attendance-notes-input h-7 w-12 rounded px-1 py-0 text-xs`}
-                            />
-                          </td>
-                          <td className="px-2 text-center">
-                            {!assignedExisting && (
-                              <button
-                                type="button"
-                                onClick={() => toggleEmployee(employee)}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-500 hover:border-danger/40 hover:bg-danger/5 hover:text-danger"
-                                aria-label={`Remove ${employee.name} from this unsaved batch`}
-                                title="Remove from batch"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
+                        <Sparkles size={14} />
+                        {attendanceReview.isPending ? "Reviewing…" : "Review attendance"}
+                      </button>
+                    </div>
+                    {attendanceReview.error && (
+                      <p role="alert" className="text-sm text-danger">
+                        Could not review attendance: {attendanceReview.error.message}
+                      </p>
+                    )}
+                    {attendanceReview.data?.workDate === workDate && (
+                      <div className="space-y-2 rounded-md bg-muted/30 p-3 text-sm">
+                        <p>{attendanceReview.data.summary}</p>
+                        <p className="font-semibold">
+                          Missing records ({attendanceReview.data.missingEmployees.length})
+                        </p>
+                        {attendanceReview.data.missingEmployees.length ? (
+                          <ul className="list-inside list-disc">
+                            {attendanceReview.data.missingEmployees.map((employee) => (
+                              <li key={employee.id}>{employee.name}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            All active employees have an attendance record for this date.
+                          </p>
+                        )}
+                        <p className="font-semibold">
+                          Unusual hours ({attendanceReview.data.unusualHours.length})
+                        </p>
+                        {attendanceReview.data.unusualHours.length ? (
+                          <ul className="list-inside list-disc">
+                            {attendanceReview.data.unusualHours.map((item) => (
+                              <li key={item.employeeId}>
+                                {item.employeeName}: {item.totalHours} hrs ({item.severity}) —{" "}
+                                {item.reason}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            No unusual hour totals were flagged.
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          AI results are suggestions; verify records before payroll is processed.
+                        </p>
+                      </div>
+                    )}
+                  </section>
+                )}
+                <div className="space-y-2 attendance-scroll-reveal">
+                  {editingKey && (
+                    <p className="px-1 text-xs font-semibold text-navy">
+                      Editing saved attendance batch
+                    </p>
                   )}
-                </tbody>
-              </table>
-            </div>
-          </div>
 
-          <section className="space-y-1.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-baseline gap-2">
-                <h3 className="text-sm font-bold text-navy">Saved batches</h3>
-                <span className="text-[11px] text-muted-foreground">
-                  {timesheets.length} workers · {savedBatches.length} batches · {workDate}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={startNewBatch}
-                className={`${btnGold} h-8 rounded-md px-2.5 py-1 text-xs`}
-              >
-                <Plus size={13} /> Create another batch
-              </button>
-            </div>
-            <div className="overflow-x-auto rounded-md border border-border bg-card">
-              <table className="w-full min-w-[760px] border-collapse text-xs">
-                <thead className="bg-slate-100">
-                  <tr className="h-8 border-b border-border text-left text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    <th className="w-10 px-2">#</th>
-                    <th className="w-28 px-2">Date</th>
-                    <th className="px-2">Site / project</th>
-                    <th className="px-2">Foreman</th>
-                    <th className="w-36 px-2">Workers</th>
-                    <th className="w-40 px-2">Created at</th>
-                    <th className="w-28 px-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {savedBatches.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={7}
-                        className="h-11 px-3 text-center text-xs text-muted-foreground"
+                  {copyPickerOpen && (
+                    <div className="rounded-xl border border-gold/40 bg-gold/10 p-3">
+                      <p className="mb-2 text-xs font-bold text-navy">
+                        Choose a batch from {previousDate} to copy. It will be staged for {workDate}
+                        ; nothing is saved until you press Save batch.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {previousBatches.map((batch) => (
+                          <button
+                            key={batch.key}
+                            type="button"
+                            onClick={() => loadCopiedBatch(batch)}
+                            className={btnOutline}
+                          >
+                            <Copy size={14} />
+                            {batch.site} · {batch.foreman} · {batch.entries.length} workers
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="relative min-w-0 flex-1 sm:max-w-xs">
+                      <Search
+                        size={14}
+                        className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                      />
+                      <input
+                        value={attendanceSearch}
+                        onChange={(event) => setAttendanceSearch(event.target.value)}
+                        placeholder="Search selected employees"
+                        aria-label="Search selected employees"
+                        className={`${input} h-8 pl-8 text-xs`}
+                      />
+                    </label>
+                    <div className="relative w-full max-w-xs">
+                      <button
+                        type="button"
+                        onClick={() => setEmployeePickerOpen((open) => !open)}
+                        aria-expanded={employeePickerOpen}
+                        className={`${input} flex h-8 items-center justify-between rounded-md px-2 py-1 text-left text-xs`}
                       >
-                        No attendance batches saved for this date. Create a batch above or copy
-                        yesterday’s attendance.
-                      </td>
-                    </tr>
-                  ) : (
-                    savedBatches.map((batch, index) => {
-                      const present = batch.entries.filter((entry) => worked(entry.status)).length;
-                      const firstEntry = batch.entries[0];
-                      return (
-                        <tr key={batch.key} className="h-10 hover:bg-slate-50/70">
-                          <td className="px-2 tabular-nums text-slate-500">{index + 1}</td>
-                          <td className="px-2 tabular-nums">
-                            {new Date(`${workDate}T00:00:00`).toLocaleDateString("en-GB")}
-                          </td>
-                          <td className="max-w-52 truncate px-2 font-semibold text-navy">
-                            {batch.site}
-                          </td>
-                          <td className="max-w-48 truncate px-2">{batch.foreman}</td>
-                          <td className="px-2 tabular-nums">
-                            {batch.entries.length} · {present} present
-                          </td>
-                          <td className="px-2 text-slate-500">
-                            {firstEntry
-                              ? new Date(firstEntry.created_at).toLocaleString("en-GB", {
-                                  dateStyle: "short",
-                                  timeStyle: "short",
-                                })
-                              : "—"}
-                          </td>
-                          <td className="px-2 text-right">
+                        <span>
+                          {selectedCount
+                            ? `${selectedCount} employee${selectedCount === 1 ? "" : "s"} selected`
+                            : "Select employees…"}
+                        </span>
+                        <ChevronDown size={16} />
+                      </button>
+                      {employeePickerOpen && (
+                        <div className="absolute z-30 mt-1 w-full rounded-md border border-border bg-card p-2 shadow-lg">
+                          <div className="relative mb-2">
+                            <Search
+                              size={15}
+                              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                            />
+                            <input
+                              autoFocus
+                              value={employeeSearch}
+                              onChange={(event) => setEmployeeSearch(event.target.value)}
+                              placeholder="Find employee by name, trade or ID"
+                              className={`${input} pl-9`}
+                            />
+                          </div>
+                          <div className="max-h-64 overflow-y-auto">
+                            {activeEmployees
+                              .filter((employee) => {
+                                const query = employeeSearch.trim().toLowerCase();
+                                return (
+                                  !query ||
+                                  [
+                                    employee.name,
+                                    employee.trade,
+                                    employee.id_number,
+                                    String(employee.id),
+                                  ]
+                                    .join(" ")
+                                    .toLowerCase()
+                                    .includes(query)
+                                );
+                              })
+                              .map((employee) => {
+                                const checked = selectedIds.includes(employee.id);
+                                const assigned = timesheets.find(
+                                  (entry) => entry.employee_id === employee.id,
+                                );
+                                const assignedOutsideBatch =
+                                  assigned &&
+                                  (!editingKey ||
+                                    batchKey(assigned.site, assigned.foreman) !== editingKey);
+                                const lockedInBatch =
+                                  checked &&
+                                  editingKey !== null &&
+                                  assigned &&
+                                  batchKey(assigned.site, assigned.foreman) === editingKey;
+                                return (
+                                  <label
+                                    key={employee.id}
+                                    className={`flex min-h-11 items-center gap-3 rounded-lg px-2 py-2 text-sm ${
+                                      assignedOutsideBatch
+                                        ? "cursor-not-allowed opacity-50"
+                                        : "cursor-pointer hover:bg-navy-soft"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      disabled={Boolean(
+                                        (assignedOutsideBatch && !checked) || lockedInBatch,
+                                      )}
+                                      onChange={() => toggleEmployee(employee)}
+                                      className="h-4 w-4 accent-[var(--navy)]"
+                                    />
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block truncate font-semibold text-navy">
+                                        {employee.name}
+                                      </span>
+                                      <span className="block text-[11px] text-muted-foreground">
+                                        {employee.trade} · ID {employee.id_number || employee.id}
+                                      </span>
+                                    </span>
+                                    {assignedOutsideBatch && (
+                                      <span className="max-w-36 text-right text-[10px] font-semibold text-warn">
+                                        Assigned: {assigned.site} · {assigned.foreman}
+                                      </span>
+                                    )}
+                                    {lockedInBatch && (
+                                      <span className="text-[10px] font-bold text-money">
+                                        In this batch
+                                      </span>
+                                    )}
+                                  </label>
+                                );
+                              })}
+                            {filteredPickerEmployees.length === 0 && (
+                              <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+                                No available employees match. Workers already assigned today are
+                                locked to their existing site batch.
+                              </p>
+                            )}
+                          </div>
+                          <div className="mt-2 flex justify-between gap-2 border-t border-border pt-2">
                             <button
                               type="button"
-                              onClick={() => editBatch(batch)}
-                              className={`${btnOutline} h-7 rounded px-2 py-0.5 text-[11px]`}
+                              onClick={toggleSelectAllAvailable}
+                              disabled={!filteredPickerEmployees.length}
+                              className={btnOutline}
                             >
-                              <Pencil size={12} /> Edit batch
+                              {filteredPickerEmployees.length > 0 &&
+                              filteredPickerEmployees.every((employee) =>
+                                selectedIds.includes(employee.id),
+                              )
+                                ? "Clear available"
+                                : "Select all available"}
                             </button>
-                          </td>
-                        </tr>
-                      );
-                    })
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEmployeePickerOpen(false);
+                                setEmployeeSearch("");
+                              }}
+                              className={btnOutline}
+                            >
+                              Done
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={toggleSelectAllAvailable}
+                      disabled={!filteredPickerEmployees.length}
+                      className={`${btnOutline} h-8 px-2.5 py-1 text-xs`}
+                    >
+                      {filteredPickerEmployees.length > 0 &&
+                      filteredPickerEmployees.every((employee) => selectedIds.includes(employee.id))
+                        ? "Clear available"
+                        : "Select all"}
+                    </button>
+                  </div>
+
+                  {duplicateAssignments.length > 0 && (
+                    <p className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs font-medium text-danger">
+                      <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                      {duplicateAssignments
+                        .map(
+                          ({ employee, assigned }) =>
+                            `${employee.name} is already assigned to ${assigned.site} · ${assigned.foreman}`,
+                        )
+                        .join("; ")}
+                    </p>
                   )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
-      )}
+
+                  <div className="attendance-savebar attendance-scroll-reveal flex flex-wrap items-end justify-between gap-3 rounded-lg border border-border bg-slate-50 p-2.5">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="text-[10px] font-bold uppercase text-slate-500">
+                        In time
+                        <TimeControl
+                          value={bulkInTime}
+                          onChange={setBulkInTime}
+                          label="Bulk in time"
+                          compact
+                        />
+                      </label>
+                      <label className="text-[10px] font-bold uppercase text-slate-500">
+                        Out time
+                        <TimeControl
+                          value={bulkOutTime}
+                          onChange={setBulkOutTime}
+                          label="Bulk out time"
+                          compact
+                        />
+                      </label>
+                      <label className="text-[10px] font-bold uppercase text-slate-500">
+                        Break (hrs)
+                        <input
+                          type="number"
+                          min="0"
+                          max="23.75"
+                          step="0.25"
+                          value={bulkBreakHours}
+                          onChange={(event) => setBulkBreakHours(event.target.value)}
+                          aria-label="Bulk break duration in hours"
+                          className={`${input} h-8 w-24 rounded px-2 py-1 text-xs`}
+                        />
+                      </label>
+                      <div className="flex flex-wrap gap-1">
+                        {SHIFT_PRESETS.map(({ start, end, label }) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => {
+                              setBulkInTime(start);
+                              setBulkOutTime(end);
+                            }}
+                            className={`${btnOutline} h-8 px-2 py-1 text-[11px]`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={applySchedule}
+                        disabled={!selectedCount}
+                        className={`${btnOutline} h-9 px-3 py-1 text-xs`}
+                      >
+                        <Check size={13} /> Apply to selected
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {dirty && (
+                        <span className="text-[11px] font-semibold text-warn" role="status">
+                          Unsaved changes
+                        </span>
+                      )}
+                      {dirty && (
+                        <button
+                          type="button"
+                          onClick={startNewBatch}
+                          className={`${btnOutline} h-8 rounded-md px-2.5 py-1 text-xs`}
+                        >
+                          <X size={13} /> Cancel
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={saving || !selectedCount || Boolean(duplicateAssignments.length)}
+                        onClick={() => void saveBatch()}
+                        className={`${btnGold} h-8 rounded-md px-3 py-1 text-xs`}
+                      >
+                        {saving ? "Saving…" : "Save Changes"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="attendance-scroll-reveal space-y-2 rounded-md border border-border bg-card p-2">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border pb-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                        Attendance columns
+                      </span>
+                      {ATTENDANCE_COLUMNS.map(({ value, label }) => (
+                        <label
+                          key={value}
+                          className="inline-flex min-h-8 items-center gap-1.5 text-xs font-medium text-slate-600"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={visibleColumns[value]}
+                            onChange={() => toggleColumn(value)}
+                            className="h-4 w-4 accent-[var(--navy)]"
+                          />
+                          {label}
+                        </label>
+                      ))}
+                      {(!visibleColumns.inTime || !visibleColumns.outTime) && (
+                        <span className="text-[11px] font-semibold text-money">
+                          Enter total hours directly; hidden shift times are calculated on save.
+                        </span>
+                      )}
+                    </div>
+                    {!isMobile && (
+                      <div className="attendance-table-scroll hidden overflow-x-auto md:block">
+                        <table
+                          className="w-full table-fixed border-collapse text-xs"
+                          style={{
+                            minWidth: `${760 + Number(visibleColumns.inTime) * 176 + Number(visibleColumns.outTime) * 176 + Number(visibleColumns.breakHours) * 72 + Number(visibleColumns.overtime) * 80}px`,
+                          }}
+                        >
+                          <thead className="bg-slate-100">
+                            <tr className="h-8 border-b border-border text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                              <th className="w-9 px-2 text-center" aria-label="Selected" />
+                              <th className="w-32 px-2 text-left">Status</th>
+                              <th className="sticky left-[164px] z-20 w-36 bg-slate-100 px-2 text-left">
+                                Employee
+                              </th>
+                              <th className="w-36 px-2 text-left">Role / Phone</th>
+                              {visibleColumns.inTime && <th className="w-52 px-2 text-left">In</th>}
+                              {visibleColumns.outTime && (
+                                <th className="w-52 px-2 text-left">Out</th>
+                              )}
+                              {visibleColumns.breakHours && (
+                                <th className="w-20 px-2 text-left">Break (hrs)</th>
+                              )}
+                              {visibleColumns.overtime && (
+                                <th className="w-24 px-2 text-left">Overtime (hrs)</th>
+                              )}
+                              <th className="w-28 px-2 text-left">Total hrs</th>
+                              <th className="w-16 px-2 text-left">Notes</th>
+                              <th className="w-12 px-2 text-center">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {selectedEmployees.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={
+                                    7 +
+                                    Number(visibleColumns.inTime) +
+                                    Number(visibleColumns.outTime) +
+                                    Number(visibleColumns.breakHours) +
+                                    Number(visibleColumns.overtime)
+                                  }
+                                  className="h-14 px-3 text-center text-xs text-muted-foreground"
+                                >
+                                  Select employees above to add them to this attendance batch.
+                                </td>
+                              </tr>
+                            ) : filteredAttendanceEmployees.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={11}
+                                  className="h-14 px-3 text-center text-xs text-muted-foreground"
+                                >
+                                  No selected employees match your search.
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredAttendanceEmployees.map((employee) => {
+                                const row = attendance[employee.id] ?? defaultAttendance();
+                                const workedToday = worked(row.status);
+                                const assignedExisting =
+                                  editingKey !== null &&
+                                  timesheets.some(
+                                    (entry) =>
+                                      entry.employee_id === employee.id &&
+                                      batchKey(entry.site, entry.foreman) === editingKey,
+                                  );
+                                const statusStyle =
+                                  row.status === "PRESENT"
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                    : row.status === "ABSENT"
+                                      ? "border-rose-200 bg-rose-50 text-rose-800"
+                                      : row.status === "HALF_DAY"
+                                        ? "border-amber-200 bg-amber-50 text-amber-800"
+                                        : row.status === "LEAVE"
+                                          ? "border-sky-200 bg-sky-50 text-sky-800"
+                                          : "border-slate-200 bg-white text-slate-700";
+                                return (
+                                  <tr key={employee.id} className="h-11 hover:bg-slate-50/70">
+                                    <td className="px-2 text-center">
+                                      <input
+                                        type="checkbox"
+                                        checked
+                                        disabled={assignedExisting}
+                                        onChange={() => toggleEmployee(employee)}
+                                        aria-label={`Select ${employee.name}`}
+                                        className="h-3.5 w-3.5 accent-[var(--navy)] disabled:opacity-50"
+                                      />
+                                    </td>
+                                    <td className="px-2">
+                                      <select
+                                        value={row.status}
+                                        onChange={(event) =>
+                                          updateAttendance(employee.id, {
+                                            status: event.target.value as AttendanceStatus,
+                                          })
+                                        }
+                                        aria-label={`${employee.name} status`}
+                                        className={`${select} h-7 rounded border px-1.5 py-0 text-[11px] ${statusStyle}`}
+                                      >
+                                        {ATTENDANCE_STATUSES.map((status) => (
+                                          <option key={status.value} value={status.value}>
+                                            {status.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </td>
+                                    <td
+                                      className="sticky left-[164px] z-10 truncate bg-card px-2 font-semibold text-navy"
+                                      title={employee.name}
+                                    >
+                                      {employee.name}
+                                    </td>
+                                    <td
+                                      className="truncate px-2 text-[11px] text-slate-500"
+                                      title={`${employee.trade} / ${employee.id_number || employee.id}`}
+                                    >
+                                      {employee.trade} / {employee.id_number || `ID ${employee.id}`}
+                                    </td>
+                                    {visibleColumns.inTime && (
+                                      <td className="px-2">
+                                        <TimeControl
+                                          value={row.inTime}
+                                          disabled={!workedToday}
+                                          onChange={(value) =>
+                                            updateAttendance(employee.id, { inTime: value })
+                                          }
+                                          label={`${employee.name} clock-in time`}
+                                          compact
+                                        />
+                                      </td>
+                                    )}
+                                    {visibleColumns.outTime && (
+                                      <td className="px-2">
+                                        <TimeControl
+                                          value={row.outTime}
+                                          disabled={!workedToday}
+                                          onChange={(value) =>
+                                            updateAttendance(employee.id, { outTime: value })
+                                          }
+                                          label={`${employee.name} clock-out time`}
+                                          compact
+                                        />
+                                      </td>
+                                    )}
+                                    {visibleColumns.breakHours && (
+                                      <td className="px-2">
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="0.25"
+                                          value={row.breakHours}
+                                          disabled={!workedToday}
+                                          onChange={(event) =>
+                                            updateAttendance(employee.id, {
+                                              breakHours: event.target.value,
+                                            })
+                                          }
+                                          aria-label={`${employee.name} break hours`}
+                                          className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
+                                        />
+                                      </td>
+                                    )}
+                                    {visibleColumns.overtime && (
+                                      <td className="px-2">
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="0.25"
+                                          value={row.overtime}
+                                          disabled={!workedToday}
+                                          onChange={(event) =>
+                                            updateAttendance(employee.id, {
+                                              overtime: event.target.value,
+                                            })
+                                          }
+                                          aria-label={`${employee.name} overtime hours`}
+                                          className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
+                                        />
+                                      </td>
+                                    )}
+                                    <td className="px-2">
+                                      {!visibleColumns.inTime || !visibleColumns.outTime ? (
+                                        <input
+                                          type="number"
+                                          min="0.25"
+                                          max="24"
+                                          step="0.25"
+                                          value={row.manualHours}
+                                          disabled={!workedToday}
+                                          onChange={(event) =>
+                                            updateAttendance(employee.id, {
+                                              manualHours: event.target.value,
+                                            })
+                                          }
+                                          aria-label={`${employee.name} total hours`}
+                                          className={`${input} h-9 rounded px-2 py-1 text-sm font-bold tabular-nums disabled:opacity-50`}
+                                        />
+                                      ) : (
+                                        <span className="text-xs font-semibold tabular-nums text-navy">
+                                          {scheduledHours(row).toFixed(2)}
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="px-2">
+                                      <input
+                                        value={row.notes}
+                                        onChange={(event) =>
+                                          updateAttendance(employee.id, {
+                                            notes: event.target.value,
+                                          })
+                                        }
+                                        aria-label={`${employee.name} notes`}
+                                        placeholder="—"
+                                        className={`${input} attendance-notes-input h-7 w-12 rounded px-1 py-0 text-xs`}
+                                      />
+                                    </td>
+                                    <td className="px-2 text-center">
+                                      {!assignedExisting && (
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleEmployee(employee)}
+                                          className="inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-500 hover:border-danger/40 hover:bg-danger/5 hover:text-danger"
+                                          aria-label={`Remove ${employee.name} from this unsaved batch`}
+                                          title="Remove from batch"
+                                        >
+                                          <Trash2 size={13} />
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {isMobile && (
+                      <div className="space-y-2 md:hidden">
+                        {selectedEmployees.length === 0 ? (
+                          <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+                            Select employees above to add them to this attendance batch.
+                          </p>
+                        ) : filteredAttendanceEmployees.length === 0 ? (
+                          <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+                            No selected employees match your search.
+                          </p>
+                        ) : (
+                          filteredAttendanceEmployees.map((employee) => {
+                            const row = attendance[employee.id] ?? defaultAttendance();
+                            const assignedExisting =
+                              editingKey !== null &&
+                              timesheets.some(
+                                (entry) =>
+                                  entry.employee_id === employee.id &&
+                                  batchKey(entry.site, entry.foreman) === editingKey,
+                              );
+                            return (
+                              <MobileAttendanceCard
+                                key={employee.id}
+                                employee={employee}
+                                row={row}
+                                visibleColumns={visibleColumns}
+                                assignedExisting={assignedExisting}
+                                onSelect={() => toggleEmployee(employee)}
+                                onUpdate={(patch) => updateAttendance(employee.id, patch)}
+                                totalHours={scheduledHours(row)}
+                              />
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <section className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-baseline gap-2">
+                      <h3 className="text-sm font-bold text-navy">Saved batches</h3>
+                      <span className="text-[11px] text-muted-foreground">
+                        {timesheets.length} workers · {savedBatches.length} batches · {workDate}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={startNewBatch}
+                      className={`${btnGold} h-8 rounded-md px-2.5 py-1 text-xs`}
+                    >
+                      <Plus size={13} /> Create another batch
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto rounded-md border border-border bg-card">
+                    <table className="w-full min-w-[760px] border-collapse text-xs">
+                      <thead className="bg-slate-100">
+                        <tr className="h-8 border-b border-border text-left text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                          <th className="w-10 px-2">#</th>
+                          <th className="w-28 px-2">Date</th>
+                          <th className="px-2">Site / project</th>
+                          <th className="px-2">Foreman</th>
+                          <th className="w-36 px-2">Workers</th>
+                          <th className="w-40 px-2">Created at</th>
+                          <th className="w-28 px-2 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {savedBatches.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={7}
+                              className="h-11 px-3 text-center text-xs text-muted-foreground"
+                            >
+                              No attendance batches saved for this date. Create a batch above or
+                              copy yesterday’s attendance.
+                            </td>
+                          </tr>
+                        ) : (
+                          savedBatches.map((batch, index) => {
+                            const present = batch.entries.filter((entry) =>
+                              worked(entry.status),
+                            ).length;
+                            const firstEntry = batch.entries[0];
+                            return (
+                              <tr key={batch.key} className="h-10 hover:bg-slate-50/70">
+                                <td className="px-2 tabular-nums text-slate-500">{index + 1}</td>
+                                <td className="px-2 tabular-nums">
+                                  {new Date(`${workDate}T00:00:00`).toLocaleDateString("en-GB")}
+                                </td>
+                                <td className="max-w-52 truncate px-2 font-semibold text-navy">
+                                  {batch.site}
+                                </td>
+                                <td className="max-w-48 truncate px-2">{batch.foreman}</td>
+                                <td className="px-2 tabular-nums">
+                                  {batch.entries.length} · {present} present
+                                </td>
+                                <td className="px-2 text-slate-500">
+                                  {firstEntry
+                                    ? new Date(firstEntry.created_at).toLocaleString("en-GB", {
+                                        dateStyle: "short",
+                                        timeStyle: "short",
+                                      })
+                                    : "—"}
+                                </td>
+                                <td className="px-2 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => editBatch(batch)}
+                                    className={`${btnOutline} h-7 rounded px-2 py-0.5 text-[11px]`}
+                                  >
+                                    <Pencil size={12} /> Edit batch
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              </>
+            )}
           </div>
-        </div>
+        </section>
       )}
       {monthlyAttendanceOpen && (
         <MonthlyAttendanceDialog
