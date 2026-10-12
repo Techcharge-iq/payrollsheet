@@ -1376,7 +1376,7 @@ export function TimesheetsTab({
       {sheetOpen && (
         <section className="attendance-sheet w-full" aria-label="Daily timesheet editor">
           <div className="attendance-dialog flex w-full flex-col gap-3 rounded-xl bg-background p-0 shadow-none">
-            <header className="sticky top-0 z-10 -mx-3 -mt-3 flex items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:-mt-5 sm:px-5">
+            <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-background/95 px-1 py-3 backdrop-blur">
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                   Daily timesheet · {workDate}
@@ -1386,17 +1386,19 @@ export function TimesheetsTab({
                   {foreman ? ` · ${foreman}` : ""}
                 </h2>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (dirty && !window.confirm("Discard unsaved attendance changes?")) return;
-                  setDirty(false);
-                  setSheetOpen(false);
-                }}
-                className={`${btnOutline} min-h-11 rounded-lg px-4 text-sm`}
-              >
-                <X size={16} /> Close
-              </button>
+              {role === "foreman" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (dirty && !window.confirm("Discard unsaved attendance changes?")) return;
+                    setDirty(false);
+                    setSheetOpen(false);
+                  }}
+                  className={`${btnOutline} min-h-11 rounded-lg px-4 text-sm`}
+                >
+                  <X size={16} /> Close
+                </button>
+              )}
             </header>
             <div className={`${card} attendance-batch-toolbar attendance-scroll-reveal`}>
               <label className="attendance-batch-field">
@@ -1949,7 +1951,7 @@ export function TimesheetsTab({
                       )}
                     </div>
                     {!isMobile && (
-                      <div className="attendance-table-scroll hidden overflow-x-auto md:block">
+                      <div className="attendance-table-scroll overflow-x-auto">
                         <table
                           className="w-full table-fixed border-collapse text-xs"
                           style={{
@@ -2187,7 +2189,7 @@ export function TimesheetsTab({
                       </div>
                     )}
                     {isMobile && (
-                      <div className="space-y-2 md:hidden">
+                      <div className="space-y-2">
                         {selectedEmployees.length === 0 ? (
                           <p className="px-3 py-6 text-center text-xs text-muted-foreground">
                             Select employees above to add them to this attendance batch.
