@@ -155,6 +155,13 @@ function hoursFor(draft: AttendanceDraft) {
   return Math.max(0, (end - start) / 60 - (Number(draft.breakHours) || 0));
 }
 
+const SUMMARY_TONES: Record<string, string> = {
+  Marked: "bg-amber-50 text-amber-600",
+  Present: "bg-emerald-50 text-emerald-600",
+  "Total hours": "bg-blue-50 text-blue-600",
+  "Selected employees": "bg-slate-100 text-slate-600",
+};
+
 function AttendanceSummaryCard({
   label,
   value,
@@ -172,10 +179,12 @@ function AttendanceSummaryCard({
         </p>
         <p className="mt-1 truncate font-display text-lg font-extrabold tabular-nums text-navy">
           {value}
-          {label === "Total hours" ? " hrs" : label === "Selected employees" ? " people" : ""}
+          {label === "Total hours" ? " hrs" : label === "Selected employees" ? " employees" : ""}
         </p>
       </div>
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+      <span
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${SUMMARY_TONES[label] ?? "bg-blue-50 text-blue-600"}`}
+      >
         <Icon size={16} aria-hidden="true" />
       </span>
     </article>
@@ -1376,17 +1385,50 @@ export function TimesheetsTab({
       {sheetOpen && (
         <section className="attendance-sheet w-full" aria-label="Daily timesheet editor">
           <div className="attendance-dialog flex w-full flex-col gap-3 rounded-xl bg-background p-0 shadow-none">
-            <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-background/95 px-1 py-3 backdrop-blur">
+            <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-background/95 px-1 py-3 backdrop-blur">
               <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-                  Daily timesheet · {workDate}
-                </p>
                 <h2 className="truncate font-display text-lg font-bold text-navy">
                   {site || "Select a project"}
                   {foreman ? ` · ${foreman}` : ""}
                 </h2>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                  Daily · {workDate}
+                </p>
               </div>
-              {role === "foreman" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-300 bg-card px-2.5 text-xs font-semibold text-slate-600">
+                  <CalendarDays size={14} className="shrink-0 text-slate-400" />
+                  <input
+                    type="date"
+                    value={workDate}
+                    aria-label="Attendance date"
+                    onChange={(event) => {
+                      const nextDate = event.target.value;
+                      if (!nextDate || nextDate === workDate) return;
+                      if (dirty && !window.confirm("Discard unsaved attendance batch changes?"))
+                        return;
+                      pendingDateEdit.current = {
+                        batchKey: editingKey,
+                        site,
+                        foreman,
+                        projectId: selectedProjectId,
+                        foremanId: selectedForemanId,
+                      };
+                      setDirty(false);
+                      setWorkDate(nextDate);
+                      setCopyPickerOpen(false);
+                    }}
+                    className="w-[8.5rem] bg-transparent text-xs font-semibold text-navy focus:outline-none"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={saving || !selectedCount || Boolean(duplicateAssignments.length)}
+                  onClick={() => void saveBatch()}
+                  className={`${btnGold} min-h-11 rounded-lg px-4 text-sm`}
+                >
+                  {saving ? "Saving…" : "Save Changes"}
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -1398,7 +1440,7 @@ export function TimesheetsTab({
                 >
                   <X size={16} /> Close
                 </button>
-              )}
+              </div>
             </header>
             <div className={`${card} attendance-batch-toolbar attendance-scroll-reveal`}>
               <label className="attendance-batch-field">
