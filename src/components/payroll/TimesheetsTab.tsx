@@ -219,29 +219,31 @@ function MobileAttendanceCard({
           : row.status === "LEAVE"
             ? "border-sky-200 bg-sky-50 text-sky-800"
             : "border-slate-200 bg-white text-slate-700";
+  const manualEntry = !visibleColumns.inTime || !visibleColumns.outTime;
+  const compactField = `${input} h-9 w-full rounded-md px-1.5 py-1 text-center text-xs disabled:opacity-50`;
 
   return (
-    <article className="rounded-lg border border-border bg-white p-3 shadow-sm">
-      <div className="flex items-start gap-2">
+    <article className="rounded-xl border border-border bg-white p-2.5 shadow-sm">
+      <div className="flex items-center gap-2">
         <input
           type="checkbox"
           checked
           disabled={assignedExisting}
           onChange={onSelect}
           aria-label={`Select ${employee.name}`}
-          className="mt-1 h-4 w-4 shrink-0 accent-[var(--navy)] disabled:opacity-50"
+          className="h-4 w-4 shrink-0 accent-[var(--navy)] disabled:opacity-50"
         />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-navy">{employee.name}</p>
           <p className="truncate text-[11px] text-muted-foreground">
-            {employee.trade} · {employee.id_number || `ID ${employee.id}`}
+            {employee.trade} / {employee.id_number || `ID ${employee.id}`}
           </p>
         </div>
         <select
           value={row.status}
           onChange={(event) => onUpdate({ status: event.target.value as AttendanceStatus })}
           aria-label={`${employee.name} status`}
-          className={`${select} h-8 w-auto min-w-24 rounded border px-2 py-0 text-[11px] ${statusStyle}`}
+          className={`${select} h-8 w-auto min-w-24 shrink-0 rounded-md border px-2 py-0 text-[11px] ${statusStyle}`}
         >
           {ATTENDANCE_STATUSES.map((status) => (
             <option key={status.value} value={status.value}>
@@ -250,34 +252,36 @@ function MobileAttendanceCard({
           ))}
         </select>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="mt-2 flex items-end gap-1.5">
         {visibleColumns.inTime && (
-          <label className="col-span-2 min-w-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            In time
-            <TimeControl
+          <label className="min-w-0 flex-1 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            In
+            <input
+              type="time"
               value={row.inTime}
               disabled={!workedToday}
-              onChange={(value) => onUpdate({ inTime: value })}
-              label={`${employee.name} clock-in time`}
-              compact
+              onChange={(event) => onUpdate({ inTime: event.target.value })}
+              aria-label={`${employee.name} clock-in time`}
+              className={compactField}
             />
           </label>
         )}
         {visibleColumns.outTime && (
-          <label className="col-span-2 min-w-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Out time
-            <TimeControl
+          <label className="min-w-0 flex-1 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            Out
+            <input
+              type="time"
               value={row.outTime}
               disabled={!workedToday}
-              onChange={(value) => onUpdate({ outTime: value })}
-              label={`${employee.name} clock-out time`}
-              compact
+              onChange={(event) => onUpdate({ outTime: event.target.value })}
+              aria-label={`${employee.name} clock-out time`}
+              className={compactField}
             />
           </label>
         )}
         {visibleColumns.breakHours && (
-          <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Break (hrs)
+          <label className="w-14 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            Break
             <input
               type="number"
               min="0"
@@ -286,13 +290,13 @@ function MobileAttendanceCard({
               disabled={!workedToday}
               onChange={(event) => onUpdate({ breakHours: event.target.value })}
               aria-label={`${employee.name} break hours`}
-              className={`${input} h-9 px-2 py-1 text-sm disabled:opacity-50`}
+              className={compactField}
             />
           </label>
         )}
         {visibleColumns.overtime && (
-          <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Overtime (hrs)
+          <label className="w-14 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            OT
             <input
               type="number"
               min="0"
@@ -301,13 +305,13 @@ function MobileAttendanceCard({
               disabled={!workedToday}
               onChange={(event) => onUpdate({ overtime: event.target.value })}
               aria-label={`${employee.name} overtime hours`}
-              className={`${input} h-9 px-2 py-1 text-sm disabled:opacity-50`}
+              className={compactField}
             />
           </label>
         )}
-        {!visibleColumns.inTime || !visibleColumns.outTime ? (
-          <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Total hours
+        {manualEntry ? (
+          <label className="w-16 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            Total
             <input
               type="number"
               min="0.25"
@@ -317,30 +321,18 @@ function MobileAttendanceCard({
               disabled={!workedToday}
               onChange={(event) => onUpdate({ manualHours: event.target.value })}
               aria-label={`${employee.name} total hours`}
-              className={`${input} h-9 px-2 py-1 text-sm font-semibold disabled:opacity-50`}
+              className={`${compactField} font-bold`}
             />
           </label>
         ) : (
-          <div className="flex items-end justify-between rounded-md bg-slate-50 px-2.5 py-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-              Total hours
-            </span>
-            <span className="text-sm font-bold tabular-nums text-navy">
+          <div className="flex h-9 w-16 shrink-0 flex-col items-center justify-center self-end rounded-md bg-slate-50">
+            <span className="text-[9px] font-bold uppercase text-slate-500">Total</span>
+            <span className="text-xs font-bold tabular-nums text-navy">
               {totalHours.toFixed(2)}
             </span>
           </div>
         )}
       </div>
-      <label className="mt-2 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-        Notes
-        <input
-          value={row.notes}
-          onChange={(event) => onUpdate({ notes: event.target.value })}
-          aria-label={`${employee.name} notes`}
-          placeholder="Add a note"
-          className={`${input} h-9 px-2 py-1 text-sm`}
-        />
-      </label>
     </article>
   );
 }
