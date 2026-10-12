@@ -61,8 +61,16 @@ export const reviewDailyAttendance = createServerFn({ method: "POST" })
       throw new Error(`Could not load saved attendance for review: ${entriesResult.error.message}`);
     }
 
-    const employees = (employeesResult.data ?? []).map(({ id, name }) => ({ id, name }));
-    const entries = (entriesResult.data ?? []).map((entry) => ({
+    const employees = (
+      (employeesResult.data ?? []) as Array<{ id: number; name: string; status: string }>
+    ).map(({ id, name }) => ({ id, name }));
+    const entries = (
+      (entriesResult.data ?? []) as Array<{
+        employee_id: number;
+        status: string;
+        total_hours: number | string;
+      }>
+    ).map((entry) => ({
       employeeId: entry.employee_id,
       status: entry.status,
       totalHours: Number(entry.total_hours),
