@@ -790,6 +790,59 @@ test("foreman records attendance from an assigned project card", async ({ page }
   expect(backend.state.timesheets[0]?.["status"]).toBe("ABSENT");
 });
 
+test("daily timesheet switches between table and mobile employee cards", async ({ page }) => {
+  await mockPayrollBackend(page, "admin");
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.goto("/");
+  await expect(page.getByText("Syncing payroll data…")).toBeHidden({ timeout: 20_000 });
+  await openTab(page, "Daily Timesheets", false);
+  await page.getByLabel("Site / project").selectOption(northCampusId);
+  await page.getByLabel("Foreman").selectOption(foremanUserId);
+  await page.getByRole("button", { name: /Select employees/ }).click();
+  await page.locator(".absolute.z-30").getByText("Asha Khan", { exact: true }).click();
+  await page.getByRole("button", { name: "Done" }).click();
+
+  const table = page.locator(".attendance-table-scroll");
+  await expect(table).toBeVisible();
+  await expect(page.getByLabel("Asha Khan status")).toHaveCount(1);
+
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await expect(table).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(table).toHaveCount(0);
+  await expect(page.getByLabel("Asha Khan status")).toBeVisible();
+  await expect(page.getByLabel("Asha Khan overtime hours")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Apply to selected" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save Changes" })).toBeVisible();
+  const viewportWidth = await page.evaluate(() => document.documentElement.clientWidth);
+  const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(documentWidth).toBeLessThanOrEqual(viewportWidth);
+});
+
+test("advance transaction View opens that employee's advance details", async ({ page }) => {
+  const backend = await mockPayrollBackend(page, "admin");
+  backend.state.advance_transactions.push({
+    id: randomUUID(),
+    employee_id: 1,
+    date: "2026-10-05",
+    amount: 25,
+    reason: "Personal",
+    payment_method: "Cash",
+    notes: "",
+    created_at: timestamp,
+  });
+
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.goto("/");
+  await expect(page.getByText("Syncing payroll data…")).toBeHidden({ timeout: 20_000 });
+  await openTab(page, "Advances", false);
+  await page.getByRole("button", { name: "View Asha Khan advance details" }).click();
+
+  await expect(page.getByText("Monthly advance balance — Asha Khan")).toBeVisible();
+  await expect(page.getByText(/Total advances issued to Asha Khan:/)).toBeVisible();
+});
+
 test("attendance report shows daily hours and hover details in the site matrix", async ({
   page,
 }) => {
