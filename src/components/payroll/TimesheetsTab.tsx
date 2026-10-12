@@ -155,6 +155,13 @@ function hoursFor(draft: AttendanceDraft) {
   return Math.max(0, (end - start) / 60 - (Number(draft.breakHours) || 0));
 }
 
+const SUMMARY_TONES: Record<string, string> = {
+  Marked: "bg-amber-50 text-amber-600",
+  Present: "bg-emerald-50 text-emerald-600",
+  "Total hours": "bg-blue-50 text-blue-600",
+  "Selected employees": "bg-slate-100 text-slate-600",
+};
+
 function AttendanceSummaryCard({
   label,
   value,
@@ -172,10 +179,12 @@ function AttendanceSummaryCard({
         </p>
         <p className="mt-1 truncate font-display text-lg font-extrabold tabular-nums text-navy">
           {value}
-          {label === "Total hours" ? " hrs" : label === "Selected employees" ? " people" : ""}
+          {label === "Total hours" ? " hrs" : label === "Selected employees" ? " employees" : ""}
         </p>
       </div>
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+      <span
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${SUMMARY_TONES[label] ?? "bg-blue-50 text-blue-600"}`}
+      >
         <Icon size={16} aria-hidden="true" />
       </span>
     </article>
@@ -210,29 +219,31 @@ function MobileAttendanceCard({
           : row.status === "LEAVE"
             ? "border-sky-200 bg-sky-50 text-sky-800"
             : "border-slate-200 bg-white text-slate-700";
+  const manualEntry = !visibleColumns.inTime || !visibleColumns.outTime;
+  const compactField = `${input} h-9 w-full rounded-md px-1.5 py-1 text-center text-xs disabled:opacity-50`;
 
   return (
-    <article className="rounded-lg border border-border bg-white p-3 shadow-sm">
-      <div className="flex items-start gap-2">
+    <article className="rounded-xl border border-border bg-white p-2.5 shadow-sm">
+      <div className="flex items-center gap-2">
         <input
           type="checkbox"
           checked
           disabled={assignedExisting}
           onChange={onSelect}
           aria-label={`Select ${employee.name}`}
-          className="mt-1 h-4 w-4 shrink-0 accent-[var(--navy)] disabled:opacity-50"
+          className="h-4 w-4 shrink-0 accent-[var(--navy)] disabled:opacity-50"
         />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-navy">{employee.name}</p>
           <p className="truncate text-[11px] text-muted-foreground">
-            {employee.trade} · {employee.id_number || `ID ${employee.id}`}
+            {employee.trade} / {employee.id_number || `ID ${employee.id}`}
           </p>
         </div>
         <select
           value={row.status}
           onChange={(event) => onUpdate({ status: event.target.value as AttendanceStatus })}
           aria-label={`${employee.name} status`}
-          className={`${select} h-8 w-auto min-w-24 rounded border px-2 py-0 text-[11px] ${statusStyle}`}
+          className={`${select} h-8 w-auto min-w-24 shrink-0 rounded-md border px-2 py-0 text-[11px] ${statusStyle}`}
         >
           {ATTENDANCE_STATUSES.map((status) => (
             <option key={status.value} value={status.value}>
@@ -241,34 +252,36 @@ function MobileAttendanceCard({
           ))}
         </select>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="mt-2 flex items-end gap-1.5">
         {visibleColumns.inTime && (
-          <label className="col-span-2 min-w-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            In time
-            <TimeControl
+          <label className="min-w-0 flex-1 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            In
+            <input
+              type="time"
               value={row.inTime}
               disabled={!workedToday}
-              onChange={(value) => onUpdate({ inTime: value })}
-              label={`${employee.name} clock-in time`}
-              compact
+              onChange={(event) => onUpdate({ inTime: event.target.value })}
+              aria-label={`${employee.name} clock-in time`}
+              className={compactField}
             />
           </label>
         )}
         {visibleColumns.outTime && (
-          <label className="col-span-2 min-w-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Out time
-            <TimeControl
+          <label className="min-w-0 flex-1 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            Out
+            <input
+              type="time"
               value={row.outTime}
               disabled={!workedToday}
-              onChange={(value) => onUpdate({ outTime: value })}
-              label={`${employee.name} clock-out time`}
-              compact
+              onChange={(event) => onUpdate({ outTime: event.target.value })}
+              aria-label={`${employee.name} clock-out time`}
+              className={compactField}
             />
           </label>
         )}
         {visibleColumns.breakHours && (
-          <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Break (hrs)
+          <label className="w-14 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            Break
             <input
               type="number"
               min="0"
@@ -277,13 +290,13 @@ function MobileAttendanceCard({
               disabled={!workedToday}
               onChange={(event) => onUpdate({ breakHours: event.target.value })}
               aria-label={`${employee.name} break hours`}
-              className={`${input} h-9 px-2 py-1 text-sm disabled:opacity-50`}
+              className={compactField}
             />
           </label>
         )}
         {visibleColumns.overtime && (
-          <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Overtime (hrs)
+          <label className="w-14 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            OT
             <input
               type="number"
               min="0"
@@ -292,13 +305,13 @@ function MobileAttendanceCard({
               disabled={!workedToday}
               onChange={(event) => onUpdate({ overtime: event.target.value })}
               aria-label={`${employee.name} overtime hours`}
-              className={`${input} h-9 px-2 py-1 text-sm disabled:opacity-50`}
+              className={compactField}
             />
           </label>
         )}
-        {!visibleColumns.inTime || !visibleColumns.outTime ? (
-          <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Total hours
+        {manualEntry ? (
+          <label className="w-16 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            Total
             <input
               type="number"
               min="0.25"
@@ -308,30 +321,18 @@ function MobileAttendanceCard({
               disabled={!workedToday}
               onChange={(event) => onUpdate({ manualHours: event.target.value })}
               aria-label={`${employee.name} total hours`}
-              className={`${input} h-9 px-2 py-1 text-sm font-semibold disabled:opacity-50`}
+              className={`${compactField} font-bold`}
             />
           </label>
         ) : (
-          <div className="flex items-end justify-between rounded-md bg-slate-50 px-2.5 py-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-              Total hours
-            </span>
-            <span className="text-sm font-bold tabular-nums text-navy">
+          <div className="flex h-9 w-16 shrink-0 flex-col items-center justify-center self-end rounded-md bg-slate-50">
+            <span className="text-[9px] font-bold uppercase text-slate-500">Total</span>
+            <span className="text-xs font-bold tabular-nums text-navy">
               {totalHours.toFixed(2)}
             </span>
           </div>
         )}
       </div>
-      <label className="mt-2 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-        Notes
-        <input
-          value={row.notes}
-          onChange={(event) => onUpdate({ notes: event.target.value })}
-          aria-label={`${employee.name} notes`}
-          placeholder="Add a note"
-          className={`${input} h-9 px-2 py-1 text-sm`}
-        />
-      </label>
     </article>
   );
 }
@@ -1376,17 +1377,50 @@ export function TimesheetsTab({
       {sheetOpen && (
         <section className="attendance-sheet w-full" aria-label="Daily timesheet editor">
           <div className="attendance-dialog flex w-full flex-col gap-3 rounded-xl bg-background p-0 shadow-none">
-            <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-background/95 px-1 py-3 backdrop-blur">
+            <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-background/95 px-1 py-3 backdrop-blur">
               <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-                  Daily timesheet · {workDate}
-                </p>
                 <h2 className="truncate font-display text-lg font-bold text-navy">
                   {site || "Select a project"}
                   {foreman ? ` · ${foreman}` : ""}
                 </h2>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                  Daily · {workDate}
+                </p>
               </div>
-              {role === "foreman" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-300 bg-card px-2.5 text-xs font-semibold text-slate-600">
+                  <CalendarDays size={14} className="shrink-0 text-slate-400" />
+                  <input
+                    type="date"
+                    value={workDate}
+                    aria-label="Attendance date"
+                    onChange={(event) => {
+                      const nextDate = event.target.value;
+                      if (!nextDate || nextDate === workDate) return;
+                      if (dirty && !window.confirm("Discard unsaved attendance batch changes?"))
+                        return;
+                      pendingDateEdit.current = {
+                        batchKey: editingKey,
+                        site,
+                        foreman,
+                        projectId: selectedProjectId,
+                        foremanId: selectedForemanId,
+                      };
+                      setDirty(false);
+                      setWorkDate(nextDate);
+                      setCopyPickerOpen(false);
+                    }}
+                    className="w-[8.5rem] bg-transparent text-xs font-semibold text-navy focus:outline-none"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={saving || !selectedCount || Boolean(duplicateAssignments.length)}
+                  onClick={() => void saveBatch()}
+                  className={`${btnGold} min-h-11 rounded-lg px-4 text-sm`}
+                >
+                  {saving ? "Saving…" : "Save Changes"}
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -1398,7 +1432,7 @@ export function TimesheetsTab({
                 >
                   <X size={16} /> Close
                 </button>
-              )}
+              </div>
             </header>
             <div className={`${card} attendance-batch-toolbar attendance-scroll-reveal`}>
               <label className="attendance-batch-field">

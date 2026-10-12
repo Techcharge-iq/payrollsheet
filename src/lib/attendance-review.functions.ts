@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { dbAny } from "@/integrations/supabase/external-client";
 import { z } from "zod";
 
 const modelReview = z.object({
@@ -22,7 +23,7 @@ export const reviewDailyAttendance = createServerFn({ method: "POST" })
     z.object({ workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).parse(data),
   )
   .handler(async ({ data, context }) => {
-    const { data: profile, error: profileError } = await context.supabase
+    const { data: profile, error: profileError } = await dbAny
       .from("users")
       .select("role,is_active")
       .eq("user_id", context.userId)
@@ -45,8 +46,8 @@ export const reviewDailyAttendance = createServerFn({ method: "POST" })
     }
 
     const [employeesResult, entriesResult] = await Promise.all([
-      context.supabase.from("employees").select("id,name,status").eq("status", "Active"),
-      context.supabase
+      dbAny.from("employees").select("id,name,status").eq("status", "Active"),
+      dbAny
         .from("timesheets")
         .select("employee_id,status,total_hours")
         .eq("work_date", data.workDate),
@@ -60,8 +61,16 @@ export const reviewDailyAttendance = createServerFn({ method: "POST" })
       throw new Error(`Could not load saved attendance for review: ${entriesResult.error.message}`);
     }
 
-    const employees = (employeesResult.data ?? []).map(({ id, name }) => ({ id, name }));
-    const entries = (entriesResult.data ?? []).map((entry) => ({
+    const employees = (
+      (employeesResult.data ?? []) as Array<{ id: number; name: string; status: string }>
+    ).map(({ id, name }) => ({ id, name }));
+    const entries = (
+      (entriesResult.data ?? []) as Array<{
+        employee_id: number;
+        status: string;
+        total_hours: number | string;
+      }>
+    ).map((entry) => ({
       employeeId: entry.employee_id,
       status: entry.status,
       totalHours: Number(entry.total_hours),
