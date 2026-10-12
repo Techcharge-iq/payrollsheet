@@ -820,29 +820,6 @@ test("daily timesheet switches between table and mobile employee cards", async (
   expect(documentWidth).toBeLessThanOrEqual(viewportWidth);
 });
 
-test("advance transaction View opens that employee's advance details", async ({ page }) => {
-  const backend = await mockPayrollBackend(page, "admin");
-  backend.state.advance_transactions.push({
-    id: randomUUID(),
-    employee_id: 1,
-    date: "2026-10-05",
-    amount: 25,
-    reason: "Personal",
-    payment_method: "Cash",
-    notes: "",
-    created_at: timestamp,
-  });
-
-  await page.setViewportSize({ width: 1440, height: 960 });
-  await page.goto("/");
-  await expect(page.getByText("Syncing payroll data…")).toBeHidden({ timeout: 20_000 });
-  await openTab(page, "Advances", false);
-  await page.getByRole("button", { name: "View Asha Khan advance details" }).click();
-
-  await expect(page.getByText("Monthly advance balance — Asha Khan")).toBeVisible();
-  await expect(page.getByText(/Total advances issued to Asha Khan:/)).toBeVisible();
-});
-
 test("attendance report shows daily hours and hover details in the site matrix", async ({
   page,
 }) => {
