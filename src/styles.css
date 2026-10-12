@@ -446,6 +446,31 @@
     padding: 12px;
   }
 
+  .attendance-dialog {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .attendance-savebar {
+    position: sticky;
+    z-index: 20;
+    bottom: 0;
+    margin: 0 -0.75rem;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    border-radius: 12px 12px 0 0;
+    background: color-mix(in oklch, var(--background) 96%, transparent);
+    box-shadow: 0 -5px 16px oklch(0.29 0.025 245 / 0.08);
+    backdrop-filter: blur(12px);
+  }
+
+  .attendance-savebar > div:last-child {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .attendance-savebar > div:last-child button:last-child {
+    min-height: 40px;
+  }
+
   .attendance-batch-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

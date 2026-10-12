@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Banknote, Plus, Save, Trash2, X, Search } from "lucide-react";
+import { Banknote, Eye, Plus, Save, Trash2, X, Search } from "lucide-react";
 import {
   ADVANCE_REASONS,
   PAYMENT_METHODS,
@@ -177,6 +177,11 @@ export function AdvancesTab({
         setOpen(false);
       },
     );
+  };
+
+  const viewEmployee = (employeeId: number) => {
+    setFilterEmployee(String(employeeId));
+    setQuery("");
   };
 
   return (
@@ -392,6 +397,14 @@ export function AdvancesTab({
                     </span>
                     <div className="flex gap-1.5">
                       <button
+                        title={`View ${emp?.name ?? "employee"} details`}
+                        aria-label={`View ${emp?.name ?? "employee"} advance details`}
+                        onClick={() => viewEmployee(a.employee_id)}
+                        className={`${btnOutline} h-8 px-2 text-xs`}
+                      >
+                        <Eye size={13} /> View
+                      </button>
+                      <button
                         title="Edit"
                         onClick={() => {
                           setForm({
@@ -468,6 +481,14 @@ export function AdvancesTab({
                       <td className="px-3 py-2.5">
                         <div className="flex justify-end gap-1.5">
                           <button
+                            title={`View ${emp?.name ?? "employee"} details`}
+                            aria-label={`View ${emp?.name ?? "employee"} advance details`}
+                            onClick={() => viewEmployee(a.employee_id)}
+                            className={`${btnOutline} h-8 px-2 text-xs`}
+                          >
+                            <Eye size={13} /> View
+                          </button>
+                          <button
                             title="Edit"
                             onClick={() => {
                               setForm({
@@ -517,7 +538,16 @@ export function AdvancesTab({
                   <p className="font-semibold text-navy">{employee.name}</p>
                   <p className="text-[11px] text-slate-500">{employee.trade}</p>
                 </div>
-                <p className="font-bold text-money">{fmt(balance)} OMR</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-bold text-money">{fmt(balance)} OMR</p>
+                  <button
+                    type="button"
+                    onClick={() => viewEmployee(employee.id)}
+                    className={`${btnOutline} h-8 px-2 text-xs`}
+                  >
+                    <Eye size={13} /> View
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -528,6 +558,7 @@ export function AdvancesTab({
                   <th className="px-4 py-2.5">Employee</th>
                   <th className="px-4 py-2.5">Trade</th>
                   <th className="px-4 py-2.5 text-right">Outstanding balance</th>
+                  <th className="px-4 py-2.5 text-right">Details</th>
                 </tr>
               </thead>
               <tbody>
@@ -536,6 +567,15 @@ export function AdvancesTab({
                     <td className="px-4 py-2.5 font-semibold text-navy">{employee.name}</td>
                     <td className="px-4 py-2.5 text-slate-600">{employee.trade}</td>
                     <td className="px-4 py-2.5 text-right font-bold text-money">{fmt(balance)}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      <button
+                        type="button"
+                        onClick={() => viewEmployee(employee.id)}
+                        className={`${btnOutline} h-8 px-2.5 text-xs`}
+                      >
+                        <Eye size={13} /> View
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
