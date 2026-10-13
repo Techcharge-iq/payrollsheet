@@ -709,6 +709,7 @@ function Dashboard({
                 currentUserId={userId}
                 saving={saveTimesheets.isPending}
                 onSave={(rows) => saveTimesheets.mutateAsync(rows)}
+                onOpenWorkforce={() => navigateToTab("workforce")}
                 notify={notify}
                 onDirtyChange={(dirty) => {
                   attendanceDirtyRef.current = dirty;

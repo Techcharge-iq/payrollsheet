@@ -276,6 +276,81 @@ export type Database = {
           },
         ];
       };
+      projects: {
+        Row: {
+          id: string;
+          name: string;
+          code: string | null;
+          location: string | null;
+          notes: string | null;
+          active: boolean;
+          foreman_user_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          code?: string | null;
+          location?: string | null;
+          notes?: string | null;
+          active?: boolean;
+          foreman_user_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          code?: string | null;
+          location?: string | null;
+          notes?: string | null;
+          active?: boolean;
+          foreman_user_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      employee_site_assignments: {
+        Row: {
+          id: string;
+          employee_id: number;
+          site: string;
+          foreman: string;
+          project_id: string | null;
+          foreman_user_id: string | null;
+          effective_from: string;
+          effective_to: string | null;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          employee_id: number;
+          site: string;
+          foreman: string;
+          project_id?: string | null;
+          foreman_user_id?: string | null;
+          effective_from: string;
+          effective_to?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          employee_id?: number;
+          site?: string;
+          foreman?: string;
+          project_id?: string | null;
+          foreman_user_id?: string | null;
+          effective_from?: string;
+          effective_to?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       payroll_site_allocations: {
         Row: {
           id: string;
