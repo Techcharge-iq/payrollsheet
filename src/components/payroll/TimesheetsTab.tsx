@@ -449,7 +449,7 @@ export function TimesheetsTab({
   const [attendanceSearch, setAttendanceSearch] = useState("");
   const [copyPickerOpen, setCopyPickerOpen] = useState(false);
   const [monthlyAttendanceOpen, setMonthlyAttendanceOpen] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(role !== "foreman");
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [bulkInTime, setBulkInTime] = useState("08:00");
   const [bulkOutTime, setBulkOutTime] = useState("17:00");
   const [bulkBreakHours, setBulkBreakHours] = useState("1");
@@ -512,7 +512,7 @@ export function TimesheetsTab({
       (assignmentsQuery.data ?? []).filter(
         (assignment) =>
           assignment.project_id === selectedProjectId &&
-          assignment.foreman_user_id === currentUserId &&
+          (role !== "foreman" || assignment.foreman_user_id === currentUserId) &&
           assignment.effective_from <= workDate &&
           (!assignment.effective_to || assignment.effective_to >= workDate),
       ),
@@ -674,7 +674,7 @@ export function TimesheetsTab({
           .filter(
             (assignment) =>
               assignment.project_id === pending.projectId &&
-              assignment.foreman_user_id === currentUserId &&
+              (role !== "foreman" || assignment.foreman_user_id === currentUserId) &&
               assignment.effective_from <= workDate &&
               (!assignment.effective_to || assignment.effective_to >= workDate),
           )
@@ -1041,7 +1041,7 @@ export function TimesheetsTab({
       .filter(
         (assignment) =>
           assignment.project_id === project.id &&
-          assignment.foreman_user_id === currentUserId &&
+          (role !== "foreman" || assignment.foreman_user_id === currentUserId) &&
           assignment.effective_from <= workDate &&
           (!assignment.effective_to || assignment.effective_to >= workDate),
       )
@@ -1375,8 +1375,8 @@ export function TimesheetsTab({
         )}
       </section>
       {sheetOpen && (
-        <section className="attendance-sheet w-full" aria-label="Daily timesheet editor">
-          <div className="attendance-dialog flex w-full flex-col gap-3 rounded-xl bg-background p-0 shadow-none">
+        <section role="dialog" aria-modal="true" className="attendance-sheet fixed inset-0 z-[60] flex items-stretch justify-center bg-foreground/40 backdrop-blur-sm sm:items-center sm:p-4" aria-label="Daily timesheet editor">
+          <div className="attendance-dialog flex h-full w-full max-w-6xl flex-col gap-3 overflow-y-auto bg-background p-3 shadow-2xl sm:h-auto sm:max-h-[92vh] sm:rounded-2xl sm:p-5">
             <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-background/95 px-1 py-3 backdrop-blur">
               <div className="min-w-0">
                 <h2 className="truncate font-display text-lg font-bold text-navy">
