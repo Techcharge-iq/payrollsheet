@@ -438,7 +438,23 @@
   }
 
   .workstation-shell {
-    padding: 12px 12px calc(92px + env(safe-area-inset-bottom));
+    padding: calc(12px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+      calc(92px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+
+  .workstation-content,
+  .workstation-content main {
+    min-width: 0;
+  }
+
+  .workstation-content :where(.grid, .flex) > * {
+    min-width: 0;
+  }
+
+  .workstation-content :where(.overflow-x-auto) {
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
   }
 
   .attendance-batch-toolbar {

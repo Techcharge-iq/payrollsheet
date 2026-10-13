@@ -384,6 +384,45 @@ test.describe("responsive application navigation and dialogs", () => {
   }
 });
 
+test("all admin sections fit a narrow mobile viewport without page-level horizontal scrolling", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await mockPayrollBackend(page, "admin");
+  await page.goto("/");
+  await expect(page.getByText("Syncing payroll data…")).toBeHidden({ timeout: 20_000 });
+
+  for (const label of [
+    "Overview",
+    "Employees",
+    "Workforce & Leave",
+    "Monthly Payroll",
+    "Daily Timesheets",
+    "Attendance Report",
+    "Advances",
+    "Employee History",
+    "Salary Slips",
+    "Cost Allocation",
+    "WPS Export",
+    "Audit Log",
+    "Managing",
+  ]) {
+    await openTab(page, label, true);
+    await expect(page.locator("main.mobile-screen-enter > *").first()).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Application menu" }).locator('[aria-current="page"]'),
+    ).toHaveAttribute("aria-label", label);
+    const widths = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      page: document.documentElement.scrollWidth,
+    }));
+    expect(
+      widths.page,
+      `${label} should not widen the page beyond ${widths.viewport}px`,
+    ).toBeLessThanOrEqual(widths.viewport);
+  }
+});
+
 test("overview uses the available desktop width and offers immediate actions", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await mockPayrollBackend(page, "admin");
