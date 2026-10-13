@@ -19,7 +19,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
 import { dbAny } from "@/integrations/supabase/external-client";
-import { reviewDailyAttendance } from "@/lib/attendance-review.functions";
+import { reviewDailyAttendance, reviewProjectAttendance } from "@/lib/attendance-review.functions";
 import { useTimesheetsForDate, type TimesheetRecord } from "@/lib/payroll-data";
 import { useProjects, type Project } from "@/lib/management-data";
 import { projectAccessError } from "@/lib/project-access";
@@ -36,6 +36,7 @@ interface Props {
   onSave: (
     rows: Omit<TimesheetRecord, "id" | "created_at" | "total_hours" | "regular_hours">[],
   ) => Promise<void>;
+  onOpenWorkforce: () => void;
   notify: (message: string, tone?: "ok" | "warn") => void;
   onDirtyChange?: (dirty: boolean) => void;
 }
@@ -333,6 +334,16 @@ function MobileAttendanceCard({
           </div>
         )}
       </div>
+      <label className="mt-2 block text-[9px] font-bold uppercase tracking-wide text-slate-500">
+        Attendance note
+        <input
+          value={row.notes}
+          onChange={(event) => onUpdate({ notes: event.target.value })}
+          aria-label={`${employee.name} attendance note`}
+          placeholder="Add a note for this shift"
+          className={`${input} mt-1 h-10 w-full rounded-md px-2 py-1 text-xs`}
+        />
+      </label>
     </article>
   );
 }
@@ -343,6 +354,7 @@ export function TimesheetsTab({
   currentUserId,
   saving,
   onSave,
+  onOpenWorkforce,
   notify,
   onDirtyChange,
 }: Props) {
@@ -478,6 +490,14 @@ export function TimesheetsTab({
   const attendanceReview = useMutation({
     mutationFn: () => reviewDailyAttendance({ data: { workDate } }),
   });
+  const projectPunchReview = useMutation({
+    mutationFn: () => {
+      if (!selectedProjectId) throw new Error("Choose a project before reviewing its punches.");
+      return reviewProjectAttendance({
+        data: { projectId: selectedProjectId, workDate },
+      });
+    },
+  });
   const employeeById = useMemo(
     () => new Map(employees.map((employee) => [employee.id, employee])),
     [employees],
@@ -516,7 +536,7 @@ export function TimesheetsTab({
           assignment.effective_from <= workDate &&
           (!assignment.effective_to || assignment.effective_to >= workDate),
       ),
-    [assignmentsQuery.data, currentUserId, selectedProjectId, workDate],
+    [assignmentsQuery.data, currentUserId, role, selectedProjectId, workDate],
   );
   const projectAssignmentIds = useMemo(
     () => new Set(currentProjectAssignments.map((assignment) => assignment.employee_id)),
@@ -1375,7 +1395,12 @@ export function TimesheetsTab({
         )}
       </section>
       {sheetOpen && (
-        <section role="dialog" aria-modal="true" className="attendance-sheet fixed inset-0 z-[60] flex items-stretch justify-center bg-foreground/40 backdrop-blur-sm sm:items-center sm:p-4" aria-label="Daily timesheet editor">
+        <section
+          role="dialog"
+          aria-modal="true"
+          className="attendance-sheet fixed inset-0 z-[60] flex items-stretch justify-center bg-foreground/40 backdrop-blur-sm sm:items-center sm:p-4"
+          aria-label="Daily timesheet editor"
+        >
           <div className="attendance-dialog flex h-full w-full max-w-6xl flex-col gap-3 overflow-y-auto bg-background p-3 shadow-2xl sm:h-auto sm:max-h-[92vh] sm:rounded-2xl sm:p-5">
             <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-background/95 px-1 py-3 backdrop-blur">
               <div className="min-w-0">
@@ -1606,6 +1631,160 @@ export function TimesheetsTab({
                     <AttendanceSummaryCard key={label} label={label} value={value} icon={icon} />
                   ))}
                 </section>
+                <section
+                  className={`${card} flex flex-wrap items-center justify-between gap-3 p-3`}
+                  aria-label="Project employee assignments"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-navy-soft text-navy">
+                      <Users size={18} aria-hidden="true" />
+                    </span>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                        Assigned employees
+                      </p>
+                      <p className="font-display text-lg font-extrabold tabular-nums text-navy">
+                        {assignmentsQuery.isLoading
+                          ? "Loading…"
+                          : `${projectAssignmentIds.size} employee${projectAssignmentIds.size === 1 ? "" : "s"}`}
+                      </p>
+                    </div>
+                  </div>
+                  {!assignmentsQuery.isLoading &&
+                    !assignmentsQuery.error &&
+                    projectAssignmentIds.size === 0 && (
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-3 rounded-lg border border-gold/40 bg-gold/10 p-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-bold text-navy">
+                            No employees assigned for {workDate}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-slate-600">
+                            Ask a manager or administrator to assign workers to this project. You
+                            can still review any attendance already saved for this date.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={onOpenWorkforce}
+                          className={`${btnOutline} shrink-0 rounded-md px-3 py-2 text-xs`}
+                        >
+                          Open Workforce &amp; Leave
+                        </button>
+                      </div>
+                    )}
+                </section>
+                {role === "foreman" && (
+                  <section className={`${card} space-y-3 p-3`} aria-label="AI punch review">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 className="flex items-center gap-2 text-sm font-bold text-navy">
+                          <Sparkles size={15} /> AI punch check
+                        </h3>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Check saved punches and attendance notes for {site} · {workDate}. AI
+                          suggestions never change a timesheet automatically.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
+                        disabled={
+                          projectPunchReview.isPending ||
+                          assignmentsQuery.isLoading ||
+                          timesheetsQuery.isLoading
+                        }
+                        onClick={() => projectPunchReview.mutate()}
+                      >
+                        <Sparkles size={14} />
+                        {projectPunchReview.isPending ? "Checking…" : "Check punches"}
+                      </button>
+                    </div>
+                    {projectPunchReview.error && (
+                      <p role="alert" className="text-sm text-danger">
+                        Could not check project punches: {projectPunchReview.error.message}
+                      </p>
+                    )}
+                    {projectPunchReview.data?.projectId === selectedProjectId &&
+                      projectPunchReview.data.workDate === workDate && (
+                        <div className="space-y-3 rounded-md bg-muted/30 p-3 text-sm">
+                          <p>{projectPunchReview.data.summary}</p>
+                          <div>
+                            <p className="font-semibold">
+                              Missing attendance records (
+                              {projectPunchReview.data.missingEmployees.length})
+                            </p>
+                            {projectPunchReview.data.missingEmployees.length ? (
+                              <ul className="mt-1 list-inside list-disc">
+                                {projectPunchReview.data.missingEmployees.map((employee) => (
+                                  <li key={employee.id}>{employee.name}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                All assigned employees have a saved record.
+                              </p>
+                            )}
+                          </div>
+                          <div>
+                            <p className="font-semibold">
+                              Punch issues ({projectPunchReview.data.issues.length})
+                            </p>
+                            {projectPunchReview.data.issues.length ? (
+                              <ul className="mt-1 space-y-2">
+                                {projectPunchReview.data.issues.map((issue) => (
+                                  <li
+                                    key={issue.employeeId}
+                                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card p-2"
+                                  >
+                                    <span className="min-w-0 flex-1">
+                                      <span className="font-semibold">
+                                        {issue.employeeName} · {issue.type.replaceAll("_", " ")}
+                                      </span>
+                                      <span className="ml-1 text-xs text-muted-foreground">
+                                        ({issue.severity}) — {issue.reason}
+                                      </span>
+                                      {(issue.suggestedInTime || issue.suggestedOutTime) && (
+                                        <span className="mt-1 block text-xs font-semibold text-navy">
+                                          Suggested: in {issue.suggestedInTime ?? "unchanged"} · out{" "}
+                                          {issue.suggestedOutTime ?? "unchanged"}
+                                        </span>
+                                      )}
+                                    </span>
+                                    {(issue.suggestedInTime || issue.suggestedOutTime) && (
+                                      <button
+                                        type="button"
+                                        className={`${btnOutline} shrink-0 rounded-md px-2.5 py-1 text-xs`}
+                                        onClick={() =>
+                                          updateAttendance(issue.employeeId, {
+                                            ...(issue.suggestedInTime
+                                              ? { inTime: issue.suggestedInTime }
+                                              : {}),
+                                            ...(issue.suggestedOutTime
+                                              ? { outTime: issue.suggestedOutTime }
+                                              : {}),
+                                          })
+                                        }
+                                      >
+                                        Use suggestion
+                                      </button>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                No missing or inconsistent punches were flagged.
+                              </p>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Review every suggestion. Using one stages it in the form; press Save
+                            Changes to write it.
+                          </p>
+                        </div>
+                      )}
+                  </section>
+                )}
                 {["admin", "hr", "manager"].includes(role) && (
                   <section className={`${card} space-y-3 p-3`} aria-label="AI attendance review">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1989,7 +2168,7 @@ export function TimesheetsTab({
                         <table
                           className="w-full table-fixed border-collapse text-xs"
                           style={{
-                            minWidth: `${760 + Number(visibleColumns.inTime) * 176 + Number(visibleColumns.outTime) * 176 + Number(visibleColumns.breakHours) * 72 + Number(visibleColumns.overtime) * 80}px`,
+                            minWidth: `${880 + Number(visibleColumns.inTime) * 176 + Number(visibleColumns.outTime) * 176 + Number(visibleColumns.breakHours) * 72 + Number(visibleColumns.overtime) * 80}px`,
                           }}
                         >
                           <thead className="bg-slate-100">
@@ -2011,7 +2190,7 @@ export function TimesheetsTab({
                                 <th className="w-24 px-2 text-left">Overtime (hrs)</th>
                               )}
                               <th className="w-28 px-2 text-left">Total hrs</th>
-                              <th className="w-16 px-2 text-left">Notes</th>
+                              <th className="w-48 px-2 text-left">Attendance note</th>
                               <th className="w-12 px-2 text-center">Actions</th>
                             </tr>
                           </thead>
@@ -2196,9 +2375,9 @@ export function TimesheetsTab({
                                             notes: event.target.value,
                                           })
                                         }
-                                        aria-label={`${employee.name} notes`}
-                                        placeholder="—"
-                                        className={`${input} attendance-notes-input h-7 w-12 rounded px-1 py-0 text-xs`}
+                                        aria-label={`${employee.name} attendance note`}
+                                        placeholder="Add a note for this shift"
+                                        className={`${input} attendance-notes-input h-9 w-48 rounded px-2 py-1 text-xs`}
                                       />
                                     </td>
                                     <td className="px-2 text-center">
