@@ -1654,7 +1654,7 @@ export function TimesheetsTab({
                         <button
                           type="button"
                           onClick={onOpenWorkforce}
-                          className={`${btnOutline} shrink-0 rounded-md px-3 py-2 text-xs`}
+                          className={`${btnOutline} shrink-0 rounded-md px-2.5 py-1 text-xs`}
                         >
                           Open Workforce &amp; Leave
                         </button>
@@ -1680,7 +1680,7 @@ export function TimesheetsTab({
                             key={batch.key}
                             type="button"
                             onClick={() => loadCopiedBatch(batch)}
-                            className={btnOutline}
+                            className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
                           >
                             <Copy size={14} />
                             {batch.site} · {batch.foreman} · {batch.entries.length} workers
@@ -1815,7 +1815,7 @@ export function TimesheetsTab({
                               type="button"
                               onClick={toggleSelectAllAvailable}
                               disabled={!filteredPickerEmployees.length}
-                              className={btnOutline}
+                              className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
                             >
                               {filteredPickerEmployees.length > 0 &&
                               filteredPickerEmployees.every((employee) =>
@@ -1830,7 +1830,7 @@ export function TimesheetsTab({
                                 setEmployeePickerOpen(false);
                                 setEmployeeSearch("");
                               }}
-                              className={btnOutline}
+                              className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
                             >
                               Done
                             </button>
