@@ -11,7 +11,7 @@ import {
   Pencil,
   Plus,
   Search,
-  Sparkles,
+
   Trash2,
   Users,
   X,
@@ -19,7 +19,6 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
 import { dbAny } from "@/integrations/supabase/external-client";
-import { reviewDailyAttendance, reviewProjectAttendance } from "@/lib/attendance-review.functions";
 import { useTimesheetsForDate, type TimesheetRecord } from "@/lib/payroll-data";
 import { useProjects, type Project } from "@/lib/management-data";
 import { projectAccessError } from "@/lib/project-access";
@@ -487,17 +486,6 @@ export function TimesheetsTab({
         .sort((a, b) => a.name.localeCompare(b.name)),
     [employees],
   );
-  const attendanceReview = useMutation({
-    mutationFn: () => reviewDailyAttendance({ data: { workDate } }),
-  });
-  const projectPunchReview = useMutation({
-    mutationFn: () => {
-      if (!selectedProjectId) throw new Error("Choose a project before reviewing its punches.");
-      return reviewProjectAttendance({
-        data: { projectId: selectedProjectId, workDate },
-      });
-    },
-  });
   const employeeById = useMemo(
     () => new Map(employees.map((employee) => [employee.id, employee])),
     [employees],
@@ -1413,7 +1401,7 @@ export function TimesheetsTab({
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <label className="flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-300 bg-card px-2.5 text-xs font-semibold text-slate-600">
+                <label className="flex min-h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-card px-2 text-[11px] font-semibold text-slate-600">
                   <CalendarDays size={14} className="shrink-0 text-slate-400" />
                   <input
                     type="date"
@@ -1442,7 +1430,7 @@ export function TimesheetsTab({
                   type="button"
                   disabled={saving || !selectedCount || Boolean(duplicateAssignments.length)}
                   onClick={() => void saveBatch()}
-                  className={`${btnGold} min-h-11 rounded-lg px-4 text-sm`}
+                  className={`${btnGold} min-h-9 rounded-md px-3 text-xs`}
                 >
                   {saving ? "Saving…" : "Save Changes"}
                 </button>
@@ -1453,7 +1441,7 @@ export function TimesheetsTab({
                     setDirty(false);
                     setSheetOpen(false);
                   }}
-                  className={`${btnOutline} min-h-11 rounded-lg px-4 text-sm`}
+                  className={`${btnOutline} min-h-9 rounded-md px-3 text-xs`}
                 >
                   <X size={16} /> Close
                 </button>
@@ -1666,193 +1654,13 @@ export function TimesheetsTab({
                         <button
                           type="button"
                           onClick={onOpenWorkforce}
-                          className={`${btnOutline} shrink-0 rounded-md px-3 py-2 text-xs`}
+                          className={`${btnOutline} shrink-0 rounded-md px-2.5 py-1 text-xs`}
                         >
                           Open Workforce &amp; Leave
                         </button>
                       </div>
                     )}
                 </section>
-                {role === "foreman" && (
-                  <section className={`${card} space-y-3 p-3`} aria-label="AI punch review">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <h3 className="flex items-center gap-2 text-sm font-bold text-navy">
-                          <Sparkles size={15} /> AI punch check
-                        </h3>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Check saved punches and attendance notes for {site} · {workDate}. AI
-                          suggestions never change a timesheet automatically.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
-                        disabled={
-                          projectPunchReview.isPending ||
-                          assignmentsQuery.isLoading ||
-                          timesheetsQuery.isLoading
-                        }
-                        onClick={() => projectPunchReview.mutate()}
-                      >
-                        <Sparkles size={14} />
-                        {projectPunchReview.isPending ? "Checking…" : "Check punches"}
-                      </button>
-                    </div>
-                    {projectPunchReview.error && (
-                      <p role="alert" className="text-sm text-danger">
-                        Could not check project punches: {projectPunchReview.error.message}
-                      </p>
-                    )}
-                    {projectPunchReview.data?.projectId === selectedProjectId &&
-                      projectPunchReview.data.workDate === workDate && (
-                        <div className="space-y-3 rounded-md bg-muted/30 p-3 text-sm">
-                          <p>{projectPunchReview.data.summary}</p>
-                          <div>
-                            <p className="font-semibold">
-                              Missing attendance records (
-                              {projectPunchReview.data.missingEmployees.length})
-                            </p>
-                            {projectPunchReview.data.missingEmployees.length ? (
-                              <ul className="mt-1 list-inside list-disc">
-                                {projectPunchReview.data.missingEmployees.map((employee) => (
-                                  <li key={employee.id}>{employee.name}</li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                All assigned employees have a saved record.
-                              </p>
-                            )}
-                          </div>
-                          <div>
-                            <p className="font-semibold">
-                              Punch issues ({projectPunchReview.data.issues.length})
-                            </p>
-                            {projectPunchReview.data.issues.length ? (
-                              <ul className="mt-1 space-y-2">
-                                {projectPunchReview.data.issues.map((issue) => (
-                                  <li
-                                    key={issue.employeeId}
-                                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card p-2"
-                                  >
-                                    <span className="min-w-0 flex-1">
-                                      <span className="font-semibold">
-                                        {issue.employeeName} · {issue.type.replaceAll("_", " ")}
-                                      </span>
-                                      <span className="ml-1 text-xs text-muted-foreground">
-                                        ({issue.severity}) — {issue.reason}
-                                      </span>
-                                      {(issue.suggestedInTime || issue.suggestedOutTime) && (
-                                        <span className="mt-1 block text-xs font-semibold text-navy">
-                                          Suggested: in {issue.suggestedInTime ?? "unchanged"} · out{" "}
-                                          {issue.suggestedOutTime ?? "unchanged"}
-                                        </span>
-                                      )}
-                                    </span>
-                                    {(issue.suggestedInTime || issue.suggestedOutTime) && (
-                                      <button
-                                        type="button"
-                                        className={`${btnOutline} shrink-0 rounded-md px-2.5 py-1 text-xs`}
-                                        onClick={() =>
-                                          updateAttendance(issue.employeeId, {
-                                            ...(issue.suggestedInTime
-                                              ? { inTime: issue.suggestedInTime }
-                                              : {}),
-                                            ...(issue.suggestedOutTime
-                                              ? { outTime: issue.suggestedOutTime }
-                                              : {}),
-                                          })
-                                        }
-                                      >
-                                        Use suggestion
-                                      </button>
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                No missing or inconsistent punches were flagged.
-                              </p>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            Review every suggestion. Using one stages it in the form; press Save
-                            Changes to write it.
-                          </p>
-                        </div>
-                      )}
-                  </section>
-                )}
-                {["admin", "hr", "manager"].includes(role) && (
-                  <section className={`${card} space-y-3 p-3`} aria-label="AI attendance review">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <h3 className="flex items-center gap-2 text-sm font-bold text-navy">
-                          <Sparkles size={15} /> AI attendance review
-                        </h3>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Check saved attendance for missing active employees and unusual hour
-                          totals.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
-                        disabled={attendanceReview.isPending || timesheetsQuery.isLoading}
-                        onClick={() => attendanceReview.mutate()}
-                      >
-                        <Sparkles size={14} />
-                        {attendanceReview.isPending ? "Reviewing…" : "Review attendance"}
-                      </button>
-                    </div>
-                    {attendanceReview.error && (
-                      <p role="alert" className="text-sm text-danger">
-                        Could not review attendance: {attendanceReview.error.message}
-                      </p>
-                    )}
-                    {attendanceReview.data?.workDate === workDate && (
-                      <div className="space-y-2 rounded-md bg-muted/30 p-3 text-sm">
-                        <p>{attendanceReview.data.summary}</p>
-                        <p className="font-semibold">
-                          Missing records ({attendanceReview.data.missingEmployees.length})
-                        </p>
-                        {attendanceReview.data.missingEmployees.length ? (
-                          <ul className="list-inside list-disc">
-                            {attendanceReview.data.missingEmployees.map((employee) => (
-                              <li key={employee.id}>{employee.name}</li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">
-                            All active employees have an attendance record for this date.
-                          </p>
-                        )}
-                        <p className="font-semibold">
-                          Unusual hours ({attendanceReview.data.unusualHours.length})
-                        </p>
-                        {attendanceReview.data.unusualHours.length ? (
-                          <ul className="list-inside list-disc">
-                            {attendanceReview.data.unusualHours.map((item) => (
-                              <li key={item.employeeId}>
-                                {item.employeeName}: {item.totalHours} hrs ({item.severity}) —{" "}
-                                {item.reason}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">
-                            No unusual hour totals were flagged.
-                          </p>
-                        )}
-                        <p className="text-xs text-muted-foreground">
-                          AI results are suggestions; verify records before payroll is processed.
-                        </p>
-                      </div>
-                    )}
-                  </section>
-                )}
                 <div className="space-y-2 attendance-scroll-reveal">
                   {editingKey && (
                     <p className="px-1 text-xs font-semibold text-navy">
@@ -1872,7 +1680,7 @@ export function TimesheetsTab({
                             key={batch.key}
                             type="button"
                             onClick={() => loadCopiedBatch(batch)}
-                            className={btnOutline}
+                            className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
                           >
                             <Copy size={14} />
                             {batch.site} · {batch.foreman} · {batch.entries.length} workers
@@ -2007,7 +1815,7 @@ export function TimesheetsTab({
                               type="button"
                               onClick={toggleSelectAllAvailable}
                               disabled={!filteredPickerEmployees.length}
-                              className={btnOutline}
+                              className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
                             >
                               {filteredPickerEmployees.length > 0 &&
                               filteredPickerEmployees.every((employee) =>
@@ -2022,7 +1830,7 @@ export function TimesheetsTab({
                                 setEmployeePickerOpen(false);
                                 setEmployeeSearch("");
                               }}
-                              className={btnOutline}
+                              className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
                             >
                               Done
                             </button>
