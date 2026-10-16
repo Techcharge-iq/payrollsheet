@@ -1401,7 +1401,7 @@ export function TimesheetsTab({
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <label className="flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-300 bg-card px-2.5 text-xs font-semibold text-slate-600">
+                <label className="flex min-h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-card px-2 text-[11px] font-semibold text-slate-600">
                   <CalendarDays size={14} className="shrink-0 text-slate-400" />
                   <input
                     type="date"
@@ -1430,7 +1430,7 @@ export function TimesheetsTab({
                   type="button"
                   disabled={saving || !selectedCount || Boolean(duplicateAssignments.length)}
                   onClick={() => void saveBatch()}
-                  className={`${btnGold} min-h-11 rounded-lg px-4 text-sm`}
+                  className={`${btnGold} min-h-9 rounded-md px-3 text-xs`}
                 >
                   {saving ? "Saving…" : "Save Changes"}
                 </button>
@@ -1441,7 +1441,7 @@ export function TimesheetsTab({
                     setDirty(false);
                     setSheetOpen(false);
                   }}
-                  className={`${btnOutline} min-h-11 rounded-lg px-4 text-sm`}
+                  className={`${btnOutline} min-h-9 rounded-md px-3 text-xs`}
                 >
                   <X size={16} /> Close
                 </button>
