@@ -245,9 +245,7 @@ function MobileAttendanceCard({
       value={row.status}
       onChange={(event) => onUpdate({ status: event.target.value as AttendanceStatus })}
       aria-label={`${employee.name} status`}
-      className={`${select} h-8 w-auto min-w-24 shrink-0 rounded-md border px-2 py-0 text-[11px] ${statusStyle}`}
-
-        >
+      className={`${select} h-8 w-auto min-w-24 shrink-0 rounded-md border px-2 py-0 text-[11px] ${statusStyle}`} >
           {ATTENDANCE_STATUSES.map((status) => (
             <option key={status.value} value={status.value}>
               {status.label}
