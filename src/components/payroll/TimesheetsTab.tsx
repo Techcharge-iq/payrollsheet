@@ -225,28 +225,28 @@ function MobileAttendanceCard({
 
   return (
     <article className="rounded-xl border border-border bg-white p-2.5 shadow-sm">
-      <div className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked
-          disabled={assignedExisting}
-          onChange={onSelect}
-          aria-label={`Select ${employee.name}`}
-          className="h-4 w-4 shrink-0 accent-[var(--navy)] disabled:opacity-50"
-        />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold leading-tight text-navy sm:break-words">
-          {employee.name}
-            </p>
-          <p className="truncate text-[11px] text-muted-foreground">
-            {employee.trade} / {employee.id_number || `ID ${employee.id}`}
-          </p>
-        </div>
-        <select
-          value={row.status}
-          onChange={(event) => onUpdate({ status: event.target.value as AttendanceStatus })}
-          aria-label={`${employee.name} status`}
-          className={`${select} h-8 w-auto min-w-24 shrink-0 rounded-md border px-2 py-0 text-[11px] ${statusStyle}`}
+  <div className="flex items-start gap-2">
+    <input
+      type="checkbox"
+      checked
+      disabled={assignedExisting}
+      onChange={onSelect}
+      aria-label={`Select ${employee.name}`}
+      className="mt-1 h-4 w-4 shrink-0 accent-[var(--navy)] disabled:opacity-50"/>
+    <div className="min-w-0 flex-1">
+      <p className="whitespace-normal text-sm font-semibold leading-tight text-navy">
+        {employee.name}
+      </p>
+      <p className="truncate text-[11px] text-muted-foreground mt-0.5">
+        {employee.trade} / {employee.id_number || `ID ${employee.id}`}
+      </p>
+    </div>
+    <select
+      value={row.status}
+      onChange={(event) => onUpdate({ status: event.target.value as AttendanceStatus })}
+      aria-label={`${employee.name} status`}
+      className={`${select} h-8 w-auto min-w-24 shrink-0 rounded-md border px-2 py-0 text-[11px] ${statusStyle}`}
+
         >
           {ATTENDANCE_STATUSES.map((status) => (
             <option key={status.value} value={status.value}>
