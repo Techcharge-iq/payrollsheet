@@ -235,9 +235,9 @@ function MobileAttendanceCard({
           className="h-4 w-4 shrink-0 accent-[var(--navy)] disabled:opacity-50"
         />
         <div className="min-w-0 flex-1">
-          <p className="break-words text-sm font-semibold leading-tight text-navy">
-            {employee.name}
-          </p>
+          <p className="truncate text-sm font-semibold leading-tight text-navy sm:break-words">
+          {employee.name}
+            </p>
           <p className="truncate text-[11px] text-muted-foreground">
             {employee.trade} / {employee.id_number || `ID ${employee.id}`}
           </p>
