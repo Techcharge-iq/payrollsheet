@@ -224,29 +224,39 @@ function MobileAttendanceCard({
   const compactField = `${input} h-9 w-full rounded-md px-1.5 py-1 text-center text-xs disabled:opacity-50`;
 
   return (
-    <article className="rounded-xl border border-border bg-white p-2.5 shadow-sm">
-  <div className="flex items-start gap-2">
-    <input
-      type="checkbox"
-      checked
-      disabled={assignedExisting}
-      onChange={onSelect}
-      aria-label={`Select ${employee.name}`}
-      className="mt-1 h-4 w-4 shrink-0 accent-[var(--navy)] disabled:opacity-50"/>
-    <div className="min-w-0 flex-1">
-      <p className="whitespace-normal text-sm font-semibold leading-tight text-navy">
-        {employee.name}
-      </p>
-      <p className="truncate text-[11px] text-muted-foreground mt-0.5">
-        {employee.trade} / {employee.id_number || `ID ${employee.id}`}
-      </p>
-    </div>
-    <select
-      value={row.status}
-      onChange={(event) => onUpdate({ status: event.target.value as AttendanceStatus })}
-      aria-label={`${employee.name} status`}
-      className={`${select} h-8 w-auto min-w-24 shrink-0 rounded-md border px-2 py-0 text-[11px] ${statusStyle}`}
+    <article className="rounded-xl border border-border bg-white p-3 shadow-sm">
+      {/* Top Section: Checkbox, Name, and Status Dropdown Stacked or Cleared */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+          <input
+            type="checkbox"
+            checked
+            disabled={assignedExisting}
+            onChange={onSelect}
+            aria-label={`Select ${employee.name}`}
+            className="mt-1 h-4 w-4 shrink-0 accent-[var(--navy)] disabled:opacity-50"
+          />
+          <div className="min-w-0 flex-1">
+            <p className="whitespace-normal text-sm font-semibold leading-snug text-navy">
+              {employee.name}
+            </p>
+            <p className="truncate text-[11px] text-muted-foreground mt-0.5">
+              {employee.trade} / {employee.id_number || `ID ${employee.id}`}
+            </p>
+          </div>
+        </div>
+      </div>
 
+      {/* Status Row */}
+      <div className="mt-2.5 flex items-center justify-between">
+        <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+          Status
+        </span>
+        <select
+          value={row.status}
+          onChange={(event) => onUpdate({ status: event.target.value as AttendanceStatus })}
+          aria-label={`${employee.name} status`}
+          className={`${select} h-8 w-36 rounded-md border px-2 py-0 text-xs font-medium ${statusStyle}`}
         >
           {ATTENDANCE_STATUSES.map((status) => (
             <option key={status.value} value={status.value}>
@@ -255,7 +265,9 @@ function MobileAttendanceCard({
           ))}
         </select>
       </div>
-      <div className="mt-2 flex items-end gap-1.5">
+
+      {/* Time Inputs Row */}
+      <div className="mt-3 flex items-end gap-1.5">
         {visibleColumns.inTime && (
           <label className="min-w-0 flex-1 text-[9px] font-bold uppercase tracking-wide text-slate-500">
             In
@@ -324,8 +336,7 @@ function MobileAttendanceCard({
               disabled={!workedToday}
               onChange={(event) => onUpdate({ manualHours: event.target.value })}
               aria-label={`${employee.name} total hours`}
-              className={`${compactField} font-bold`}
-            />
+              className={`${compactField} font-bold`} />
           </label>
         ) : (
           <div className="flex h-9 w-16 shrink-0 flex-col items-center justify-center self-end rounded-md bg-slate-50">
@@ -336,15 +347,16 @@ function MobileAttendanceCard({
           </div>
         )}
       </div>
-      <label className="mt-2 block text-[9px] font-bold uppercase tracking-wide text-slate-500">
+
+      {/* Attendance Note */}
+      <label className="mt-2.5 block text-[9px] font-bold uppercase tracking-wide text-slate-500">
         Attendance note
         <input
           value={row.notes}
           onChange={(event) => onUpdate({ notes: event.target.value })}
           aria-label={`${employee.name} attendance note`}
           placeholder="Add a note for this shift"
-          className={`${input} mt-1 h-10 w-full rounded-md px-2 py-1 text-xs`}
-        />
+          className={`${input} mt-1 h-9 w-full rounded-md px-2 py-1 text-xs`}/>
       </label>
     </article>
   );
