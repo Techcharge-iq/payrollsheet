@@ -789,6 +789,7 @@ test("attendance batches can save direct total hours without shift columns", asy
   await page.goto("/");
   await expect(page.getByText("Syncing payroll data…")).toBeHidden({ timeout: 20_000 });
   await openTab(page, "Daily Timesheets", false);
+  await page.getByRole("button", { name: /North Campus/ }).click();
   await page.getByLabel("Site / project").selectOption(northCampusId);
   await page.getByLabel("Foreman").selectOption(foremanUserId);
   await page.getByRole("button", { name: /Select employees/ }).click();
@@ -799,7 +800,7 @@ test("attendance batches can save direct total hours without shift columns", asy
   await page.getByRole("checkbox", { name: "Break", exact: true }).uncheck();
   await page.getByRole("checkbox", { name: "Overtime", exact: true }).uncheck();
   await page.getByLabel("Asha Khan total hours").fill("8.5");
-  await page.getByRole("button", { name: "Save Changes" }).click();
+  await page.getByRole("button", { name: "Save Changes" }).first().click();
 
   expect(backend.state.timesheets).toHaveLength(1);
   expect(backend.state.timesheets[0]?.["status"]).toBe("PRESENT");
@@ -835,6 +836,7 @@ test("daily timesheet switches between table and mobile employee cards", async (
   await page.goto("/");
   await expect(page.getByText("Syncing payroll data…")).toBeHidden({ timeout: 20_000 });
   await openTab(page, "Daily Timesheets", false);
+  await page.getByRole("button", { name: /North Campus/ }).click();
   await page.getByLabel("Site / project").selectOption(northCampusId);
   await page.getByLabel("Foreman").selectOption(foremanUserId);
   await page.getByRole("button", { name: /Select employees/ }).click();
@@ -852,8 +854,22 @@ test("daily timesheet switches between table and mobile employee cards", async (
   await expect(table).toHaveCount(0);
   await expect(page.getByLabel("Asha Khan status")).toBeVisible();
   await expect(page.getByLabel("Asha Khan overtime hours")).toBeVisible();
+  const employeeName = page
+    .getByLabel("Asha Khan status")
+    .locator("xpath=ancestor::article")
+    .locator("p")
+    .first();
+  await expect(employeeName).toHaveText("Asha Khan");
+  await expect(employeeName).not.toHaveCSS("text-overflow", "ellipsis");
   await expect(page.getByRole("button", { name: "Apply to selected" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Save Changes" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save Changes" }).first()).toBeVisible();
+  const dialogBounds = await page
+    .getByRole("dialog", { name: "Daily timesheet editor" })
+    .evaluate((dialog) => {
+      const { x, y, width, height } = dialog.getBoundingClientRect();
+      return { x, y, width, height };
+    });
+  expect(dialogBounds).toEqual({ x: 0, y: 0, width: 390, height: 844 });
   const viewportWidth = await page.evaluate(() => document.documentElement.clientWidth);
   const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(documentWidth).toBeLessThanOrEqual(viewportWidth);

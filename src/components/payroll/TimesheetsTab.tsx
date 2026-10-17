@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -235,7 +236,9 @@ function MobileAttendanceCard({
           className="h-4 w-4 shrink-0 accent-[var(--navy)] disabled:opacity-50"
         />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-navy">{employee.name}</p>
+          <p className="break-words text-sm font-semibold leading-tight text-navy">
+            {employee.name}
+          </p>
           <p className="truncate text-[11px] text-muted-foreground">
             {employee.trade} / {employee.id_number || `ID ${employee.id}`}
           </p>
@@ -1394,11 +1397,11 @@ export function TimesheetsTab({
           </p>
         )}
       </section>
-      {sheetOpen && (
-        <section
+      {sheetOpen &&
+        createPortal(<section
           role="dialog"
           aria-modal="true"
-          className="attendance-sheet fixed inset-0 z-[60] flex items-stretch justify-center bg-foreground/40 backdrop-blur-sm sm:items-center sm:p-4"
+          className="attendance-sheet fixed inset-0 z-[60] flex h-[100dvh] items-stretch justify-center bg-foreground/40 backdrop-blur-sm sm:items-center sm:p-4"
           aria-label="Daily timesheet editor"
         >
           <div className="attendance-dialog flex h-full w-full max-w-6xl flex-col gap-3 overflow-y-auto bg-background p-3 shadow-2xl sm:h-auto sm:max-h-[92vh] sm:rounded-2xl sm:p-5">
@@ -2527,8 +2530,7 @@ export function TimesheetsTab({
               </>
             )}
           </div>
-        </section>
-      )}
+        </section>, document.body)}
       {monthlyAttendanceOpen && (
         <MonthlyAttendanceDialog
           employees={employees}
