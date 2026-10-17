@@ -275,7 +275,7 @@ function MobileAttendanceCard({
       </div>
 
       {/* Time Inputs Row: Wider In/Out, Narrower Break/OT */}
-      <div className="mt-2.5 flex items-end gap-1.5">
+      <div className="mt-2.5 flex items-end gap-1.5">ì
         {visibleColumns.inTime && (
           <label className="min-w-0 flex-[1.2] text-[9px] font-bold uppercase tracking-wide text-slate-500">
             In
