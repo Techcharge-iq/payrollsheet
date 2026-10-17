@@ -281,7 +281,7 @@
   }
 
   .project-attendance-card {
-    min-height: 148px;
+    min-height: 0;
   }
 
   .project-attendance-card:focus-visible {
