@@ -107,7 +107,7 @@ function defaultAttendance(): AttendanceDraft {
     outTime: "17:00",
     breakHours: "1",
     overtime: "0",
-    manualHours: "8",
+    manualHours: "10",
     notes: "",
   };
 }
@@ -159,8 +159,8 @@ function hoursFor(draft: AttendanceDraft) {
 const SUMMARY_TONES: Record<string, string> = {
   Marked: "bg-amber-50 text-amber-600",
   Present: "bg-emerald-50 text-emerald-600",
-  "Total hours": "bg-blue-50 text-blue-600",
-  "Selected employees": "bg-slate-100 text-slate-600",
+  "Total Hours": "bg-blue-50 text-blue-600",
+  Selected: "bg-slate-100 text-slate-600",
 };
 
 function AttendanceSummaryCard({
@@ -180,7 +180,7 @@ function AttendanceSummaryCard({
         </p>
         <p className="mt-1 truncate font-display text-lg font-extrabold tabular-nums text-navy">
           {value}
-          {label === "Total hours" ? " hrs" : label === "Selected employees" ? " employees" : ""}
+          {label === "Total Hours" ? " hrs" : label === "Selected" ? " employees" : ""}
         </p>
       </div>
       <span
@@ -221,11 +221,11 @@ function MobileAttendanceCard({
             ? "border-sky-200 bg-sky-50 text-sky-800"
             : "border-slate-200 bg-white text-slate-700";
   const manualEntry = !visibleColumns.inTime || !visibleColumns.outTime;
-  const compactField = `${input} h-9 w-full rounded-md px-1.5 py-1 text-center text-xs disabled:opacity-50`;
+  const compactField = `${input} h-9 rounded-md px-1.5 py-1 text-center text-xs disabled:opacity-50`;
 
   return (
     <article className="rounded-xl border border-border bg-white p-3 shadow-sm">
-      {/* Top Section: Checkbox, Name, and Status Dropdown Stacked or Cleared */}
+      {/* Top Row: Checkbox, Name/Trade, and Total Hours */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-2.5 min-w-0 flex-1">
           <input
@@ -245,10 +245,18 @@ function MobileAttendanceCard({
             </p>
           </div>
         </div>
+
+        {/* Total Hours moved right next to the name */}
+        <div className="flex flex-col items-end shrink-0 bg-slate-50 px-2 py-1 rounded-md border border-slate-100">
+          <span className="text-[9px] font-bold uppercase text-slate-400">Total</span>
+          <span className="text-xs font-bold tabular-nums text-navy">
+            {manualEntry ? Number(row.manualHours || 0).toFixed(2) : totalHours.toFixed(2)} hrs
+          </span>
+        </div>
       </div>
 
-      {/* Status Row */}
-      <div className="mt-2.5 flex items-center justify-between">
+      {/* Status Row with a smaller, compact dropdown */}
+      <div className="mt-2.5 flex items-center justify-between border-t border-slate-100 pt-2">
         <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
           Status
         </span>
@@ -256,7 +264,7 @@ function MobileAttendanceCard({
           value={row.status}
           onChange={(event) => onUpdate({ status: event.target.value as AttendanceStatus })}
           aria-label={`${employee.name} status`}
-          className={`${select} h-8 w-36 rounded-md border px-2 py-0 text-xs font-medium ${statusStyle}`}
+          className={`${select} h-5 w-22 rounded-md border px-1.5 py-0 text-[9px] font-medium ${statusStyle}`}
         >
           {ATTENDANCE_STATUSES.map((status) => (
             <option key={status.value} value={status.value}>
@@ -266,10 +274,10 @@ function MobileAttendanceCard({
         </select>
       </div>
 
-      {/* Time Inputs Row */}
-      <div className="mt-3 flex items-end gap-1.5">
+      {/* Time Inputs Row: Wider In/Out, Narrower Break/OT */}
+      <div className="mt-2.5 flex items-end gap-1.5">
         {visibleColumns.inTime && (
-          <label className="min-w-0 flex-1 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+          <label className="min-w-0 flex-[1.2] text-[9px] font-bold uppercase tracking-wide text-slate-500">
             In
             <input
               type="time"
@@ -277,12 +285,12 @@ function MobileAttendanceCard({
               disabled={!workedToday}
               onChange={(event) => onUpdate({ inTime: event.target.value })}
               aria-label={`${employee.name} clock-in time`}
-              className={compactField}
+              className={`${compactField} w-full`}
             />
           </label>
         )}
         {visibleColumns.outTime && (
-          <label className="min-w-0 flex-1 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+          <label className="min-w-0 flex-[1.2] text-[9px] font-bold uppercase tracking-wide text-slate-500">
             Out
             <input
               type="time"
@@ -290,12 +298,12 @@ function MobileAttendanceCard({
               disabled={!workedToday}
               onChange={(event) => onUpdate({ outTime: event.target.value })}
               aria-label={`${employee.name} clock-out time`}
-              className={compactField}
+              className={`${compactField} w-full`}
             />
           </label>
         )}
         {visibleColumns.breakHours && (
-          <label className="w-14 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+          <label className="w-12 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
             Break
             <input
               type="number"
@@ -305,12 +313,12 @@ function MobileAttendanceCard({
               disabled={!workedToday}
               onChange={(event) => onUpdate({ breakHours: event.target.value })}
               aria-label={`${employee.name} break hours`}
-              className={compactField}
+              className={`${compactField} w-full px-1`}
             />
           </label>
         )}
         {visibleColumns.overtime && (
-          <label className="w-14 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+          <label className="w-12 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
             OT
             <input
               type="number"
@@ -320,13 +328,13 @@ function MobileAttendanceCard({
               disabled={!workedToday}
               onChange={(event) => onUpdate({ overtime: event.target.value })}
               aria-label={`${employee.name} overtime hours`}
-              className={compactField}
+              className={`${compactField} w-full px-1`}
             />
           </label>
         )}
-        {manualEntry ? (
-          <label className="w-16 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
-            Total
+        {manualEntry && (
+          <label className="w-12 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+            Manual
             <input
               type="number"
               min="0.25"
@@ -336,15 +344,9 @@ function MobileAttendanceCard({
               disabled={!workedToday}
               onChange={(event) => onUpdate({ manualHours: event.target.value })}
               aria-label={`${employee.name} total hours`}
-              className={`${compactField} font-bold`} />
+              className={`${compactField} w-full font-bold px-1`}
+            />
           </label>
-        ) : (
-          <div className="flex h-9 w-16 shrink-0 flex-col items-center justify-center self-end rounded-md bg-slate-50">
-            <span className="text-[9px] font-bold uppercase text-slate-500">Total</span>
-            <span className="text-xs font-bold tabular-nums text-navy">
-              {totalHours.toFixed(2)}
-            </span>
-          </div>
         )}
       </div>
 
@@ -356,7 +358,8 @@ function MobileAttendanceCard({
           onChange={(event) => onUpdate({ notes: event.target.value })}
           aria-label={`${employee.name} attendance note`}
           placeholder="Add a note for this shift"
-          className={`${input} mt-1 h-9 w-full rounded-md px-2 py-1 text-xs`}/>
+          className={`${input} mt-1 h-8 w-full rounded-md px-2 py-1 text-xs`}
+        />
       </label>
     </article>
   );
@@ -1405,7 +1408,7 @@ export function TimesheetsTab({
           aria-label="Daily timesheet editor"
         >
           <div className="attendance-dialog flex h-full w-full max-w-6xl flex-col gap-3 overflow-y-auto bg-background p-3 shadow-2xl sm:h-auto sm:max-h-[92vh] sm:rounded-2xl sm:p-5">
-            <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-background/95 px-1 py-3 backdrop-blur">
+            <header className="sticky top-0 z-20 -mx-3 mb-1 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-slate-50/95 px-3 pb-3 pt-2 backdrop-blur-md sm:-mx-5 sm:px-5">
               <div className="min-w-0">
                 <h2 className="truncate font-display text-lg font-bold text-navy">
                   {site || "Select a project"}
@@ -1416,7 +1419,7 @@ export function TimesheetsTab({
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <label className="flex min-h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-card px-2 text-[11px] font-semibold text-slate-600">
+                <label className="flex h-8 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2 text-[11px] font-semibold text-slate-600">
                   <CalendarDays size={14} className="shrink-0 text-slate-400" />
                   <input
                     type="date"
@@ -1438,14 +1441,14 @@ export function TimesheetsTab({
                       setWorkDate(nextDate);
                       setCopyPickerOpen(false);
                     }}
-                    className="w-[8.5rem] bg-transparent text-xs font-semibold text-navy focus:outline-none"
+                    className="w-[8.25rem] bg-transparent text-xs font-semibold text-navy focus:outline-none"
                   />
                 </label>
                 <button
                   type="button"
                   disabled={saving || !selectedCount || Boolean(duplicateAssignments.length)}
                   onClick={() => void saveBatch()}
-                  className={`${btnGold} min-h-9 rounded-md px-3 text-xs`}
+                  className={`${btnGold} h-8 rounded-md px-3 text-xs`}
                 >
                   {saving ? "Saving…" : "Save Changes"}
                 </button>
@@ -1456,37 +1459,38 @@ export function TimesheetsTab({
                     setDirty(false);
                     setSheetOpen(false);
                   }}
-                  className={`${btnOutline} min-h-9 rounded-md px-3 text-xs`}
+                  className={`${btnOutline} h-8 rounded-md px-2.5 text-xs`}
                 >
                   <X size={16} /> Close
                 </button>
               </div>
+              {role !== "foreman" && (
+                <div className="flex w-full flex-wrap items-center gap-1.5 border-t border-border/70 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setMonthlyAttendanceOpen(true)}
+                    className={`${btnOutline} h-7 rounded-md px-2 py-1 text-[11px]`}
+                  >
+                    <CalendarDays size={12} /> Monthly entry
+                  </button>
+                  <button
+                    type="button"
+                    onClick={copyPreviousDay}
+                    className={`${btnOutline} h-7 rounded-md px-2 py-1 text-[11px]`}
+                  >
+                    <Copy size={12} /> Copy previous day
+                  </button>
+                  <button
+                    type="button"
+                    onClick={startNewBatch}
+                    className={`${btnOutline} h-7 rounded-md px-2 py-1 text-[11px]`}
+                  >
+                    <Plus size={13} /> New batch
+                  </button>
+                </div>
+              )}
             </header>
             <div className={`${card} attendance-batch-toolbar attendance-scroll-reveal`}>
-              <label className="attendance-batch-field">
-                Attendance date
-                <input
-                  type="date"
-                  value={workDate}
-                  onChange={(event) => {
-                    const nextDate = event.target.value;
-                    if (!nextDate || nextDate === workDate) return;
-                    if (dirty && !window.confirm("Discard unsaved attendance batch changes?"))
-                      return;
-                    pendingDateEdit.current = {
-                      batchKey: editingKey,
-                      site,
-                      foreman,
-                      projectId: selectedProjectId,
-                      foremanId: selectedForemanId,
-                    };
-                    setDirty(false);
-                    setWorkDate(nextDate);
-                    setCopyPickerOpen(false);
-                  }}
-                  className={`${input} rounded-md px-2 py-1 text-xs`}
-                />
-              </label>
               {role !== "foreman" && (
                 <>
                   <button
@@ -1556,29 +1560,6 @@ export function TimesheetsTab({
                       ))}
                     </select>
                   </label>
-                  <div className="attendance-batch-actions">
-                    <button
-                      type="button"
-                      onClick={() => setMonthlyAttendanceOpen(true)}
-                      className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
-                    >
-                      <CalendarDays size={13} /> Monthly employee entry
-                    </button>
-                    <button
-                      type="button"
-                      onClick={copyPreviousDay}
-                      className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
-                    >
-                      <Copy size={13} /> Copy previous day
-                    </button>
-                    <button
-                      type="button"
-                      onClick={startNewBatch}
-                      className={`${btnGold} rounded-md px-2.5 py-1 text-xs`}
-                    >
-                      <Plus size={14} /> New batch
-                    </button>
-                  </div>
                 </>
               )}
             </div>
@@ -1622,60 +1603,40 @@ export function TimesheetsTab({
             ) : (
               <>
                 <section
-                  className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+                  className="mb-1 grid grid-cols-2 gap-2"
                   aria-label="Daily attendance summary"
                 >
                   {[
                     { label: "Marked", value: markedCount, icon: Users },
                     { label: "Present", value: presentCount, icon: Check },
-                    { label: "Total hours", value: recordedHours.toFixed(2), icon: Clock3 },
-                    { label: "Selected employees", value: selectedCount, icon: Users },
+                    { label: "Total Hours", value: recordedHours.toFixed(1), icon: Clock3 },
+                    { label: "Selected", value: selectedCount, icon: CalendarDays },
                   ].map(({ label, value, icon }) => (
                     <AttendanceSummaryCard key={label} label={label} value={value} icon={icon} />
                   ))}
                 </section>
-                <section
-                  className={`${card} flex flex-wrap items-center justify-between gap-3 p-3`}
-                  aria-label="Project employee assignments"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-navy-soft text-navy">
-                      <Users size={18} aria-hidden="true" />
-                    </span>
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                        Assigned employees
-                      </p>
-                      <p className="font-display text-lg font-extrabold tabular-nums text-navy">
-                        {assignmentsQuery.isLoading
-                          ? "Loading…"
-                          : `${projectAssignmentIds.size} employee${projectAssignmentIds.size === 1 ? "" : "s"}`}
-                      </p>
-                    </div>
-                  </div>
-                  {!assignmentsQuery.isLoading &&
-                    !assignmentsQuery.error &&
-                    projectAssignmentIds.size === 0 && (
-                      <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-3 rounded-lg border border-gold/40 bg-gold/10 p-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-bold text-navy">
-                            No employees assigned for {workDate}
-                          </p>
-                          <p className="mt-1 text-xs leading-5 text-slate-600">
-                            Ask a manager or administrator to assign workers to this project. You
-                            can still review any attendance already saved for this date.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={onOpenWorkforce}
-                          className={`${btnOutline} shrink-0 rounded-md px-2.5 py-1 text-xs`}
-                        >
-                          Open Workforce &amp; Leave
-                        </button>
+                {!assignmentsQuery.isLoading &&
+                  !assignmentsQuery.error &&
+                  projectAssignmentIds.size === 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gold/40 bg-gold/10 p-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-navy">
+                          No employees assigned for {workDate}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-slate-600">
+                          Ask a manager or administrator to assign workers to this project. You can
+                          still review any attendance already saved for this date.
+                        </p>
                       </div>
-                    )}
-                </section>
+                      <button
+                        type="button"
+                        onClick={onOpenWorkforce}
+                        className={`${btnOutline} shrink-0 rounded-md px-2.5 py-1 text-xs`}
+                      >
+                        Open Workforce &amp; Leave
+                      </button>
+                    </div>
+                  )}
                 <div className="space-y-2 attendance-scroll-reveal">
                   {editingKey && (
                     <p className="px-1 text-xs font-semibold text-navy">
@@ -1878,27 +1839,42 @@ export function TimesheetsTab({
                     </p>
                   )}
 
-                  <div className="attendance-savebar attendance-scroll-reveal flex flex-wrap items-end justify-between gap-3 rounded-lg border border-border bg-slate-50 p-2.5">
-                    <div className="flex flex-wrap items-end gap-2">
-                      <label className="text-[10px] font-bold uppercase text-slate-500">
-                        In time
-                        <TimeControl
+                  <div className="attendance-scroll-reveal rounded-xl border border-border bg-white p-3 shadow-sm">
+                    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <h3 className="text-sm font-bold text-navy">Bulk shift</h3>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                          Set the shift and apply it to selected employees.
+                        </p>
+                      </div>
+                      {dirty && (
+                        <span className="text-[11px] font-semibold text-warn" role="status">
+                          Unsaved changes
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem]">
+                      <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                        In
+                        <input
+                          type="time"
                           value={bulkInTime}
-                          onChange={setBulkInTime}
-                          label="Bulk in time"
-                          compact
+                          onChange={(event) => setBulkInTime(event.target.value)}
+                          aria-label="Bulk in time"
+                          className={`${input} mt-1 h-9 w-full rounded-md px-2 py-1 text-sm font-semibold tabular-nums`}
                         />
                       </label>
-                      <label className="text-[10px] font-bold uppercase text-slate-500">
-                        Out time
-                        <TimeControl
+                      <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                        Out
+                        <input
+                          type="time"
                           value={bulkOutTime}
-                          onChange={setBulkOutTime}
-                          label="Bulk out time"
-                          compact
+                          onChange={(event) => setBulkOutTime(event.target.value)}
+                          aria-label="Bulk out time"
+                          className={`${input} mt-1 h-9 w-full rounded-md px-2 py-1 text-sm font-semibold tabular-nums`}
                         />
                       </label>
-                      <label className="text-[10px] font-bold uppercase text-slate-500">
+                      <label className="col-span-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 sm:col-span-1">
                         Break (hrs)
                         <input
                           type="number"
@@ -1908,10 +1884,12 @@ export function TimesheetsTab({
                           value={bulkBreakHours}
                           onChange={(event) => setBulkBreakHours(event.target.value)}
                           aria-label="Bulk break duration in hours"
-                          className={`${input} h-8 w-24 rounded px-2 py-1 text-xs`}
+                          className={`${input} mt-1 h-9 w-full rounded-md px-2 py-1 text-sm tabular-nums`}
                         />
                       </label>
-                      <div className="flex flex-wrap gap-1">
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-3">
+                      <div className="flex flex-wrap gap-1.5">
                         {SHIFT_PRESETS.map(({ start, end, label }) => (
                           <button
                             key={label}
@@ -1920,44 +1898,34 @@ export function TimesheetsTab({
                               setBulkInTime(start);
                               setBulkOutTime(end);
                             }}
-                            className={`${btnOutline} h-8 px-2 py-1 text-[11px]`}
+                            className={`${btnOutline} h-8 rounded-full px-3 py-1 text-[11px]`}
                           >
-                            {label}
+                            {label}{" "}
+                            <span className="ml-1 tabular-nums text-slate-500">
+                              {start}–{end}
+                            </span>
                           </button>
                         ))}
                       </div>
-                      <button
-                        type="button"
-                        onClick={applySchedule}
-                        disabled={!selectedCount}
-                        className={`${btnOutline} h-9 px-3 py-1 text-xs`}
-                      >
-                        <Check size={13} /> Apply to selected
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {dirty && (
-                        <span className="text-[11px] font-semibold text-warn" role="status">
-                          Unsaved changes
-                        </span>
-                      )}
-                      {dirty && (
+                      <div className="flex items-center gap-2">
+                        {dirty && (
+                          <button
+                            type="button"
+                            onClick={startNewBatch}
+                            className={`${btnOutline} h-8 rounded-md px-2.5 py-1 text-xs`}
+                          >
+                            <X size={13} /> Cancel
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={startNewBatch}
-                          className={`${btnOutline} h-8 rounded-md px-2.5 py-1 text-xs`}
+                          onClick={applySchedule}
+                          disabled={!selectedCount}
+                          className={`${btnGold} h-8 rounded-md px-3 py-1 text-xs`}
                         >
-                          <X size={13} /> Cancel
+                          <Check size={13} /> Apply to selected
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        disabled={saving || !selectedCount || Boolean(duplicateAssignments.length)}
-                        onClick={() => void saveBatch()}
-                        className={`${btnGold} h-8 rounded-md px-3 py-1 text-xs`}
-                      >
-                        {saving ? "Saving…" : "Save Changes"}
-                      </button>
+                      </div>
                     </div>
                   </div>
 
