@@ -590,8 +590,8 @@ export function TimesheetsTab({
     setForeman(matches[0]!.foreman);
     setSelectedForemanId(
       matches[0]!.foreman_user_id ??
-        foremanOptions.find((option) => option.name === matches[0]!.foreman)?.userId ??
-        null,
+      foremanOptions.find((option) => option.name === matches[0]!.foreman)?.userId ??
+      null,
     );
     setDirty(true);
   };
@@ -659,17 +659,17 @@ export function TimesheetsTab({
       setSite(batch.site);
       setSelectedProjectId(
         batch.entries[0]?.project_id ??
-          pending.projectId ??
-          projects.find((project) => project.name === batch.site)?.id ??
-          null,
+        pending.projectId ??
+        projects.find((project) => project.name === batch.site)?.id ??
+        null,
       );
       setForeman(batch.foreman);
       setSelectedForemanId(
         batch.entries[0]?.foreman_user_id ??
-          pending.foremanId ??
-          (role === "foreman"
-            ? currentUserId
-            : (foremanOptions.find((option) => option.name === batch.foreman)?.userId ?? null)),
+        pending.foremanId ??
+        (role === "foreman"
+          ? currentUserId
+          : (foremanOptions.find((option) => option.name === batch.foreman)?.userId ?? null)),
       );
       setEditingKey(batch.key);
       setSelectedIds(batch.entries.map((entry) => entry.employee_id));
@@ -684,9 +684,9 @@ export function TimesheetsTab({
       setForeman(pending.foreman);
       setSelectedForemanId(
         pending.foremanId ??
-          (role === "foreman"
-            ? currentUserId
-            : (foremanOptions.find((option) => option.name === pending.foreman)?.userId ?? null)),
+        (role === "foreman"
+          ? currentUserId
+          : (foremanOptions.find((option) => option.name === pending.foreman)?.userId ?? null)),
       );
       setEditingKey(null);
       setSelectedIds([]);
@@ -817,15 +817,15 @@ export function TimesheetsTab({
     setSite(batch.site);
     setSelectedProjectId(
       batch.entries[0]?.project_id ??
-        projects.find((project) => project.name === batch.site)?.id ??
-        null,
+      projects.find((project) => project.name === batch.site)?.id ??
+      null,
     );
     setForeman(batch.foreman);
     setSelectedForemanId(
       batch.entries[0]?.foreman_user_id ??
-        (role === "foreman"
-          ? currentUserId
-          : (foremanOptions.find((option) => option.name === batch.foreman)?.userId ?? null)),
+      (role === "foreman"
+        ? currentUserId
+        : (foremanOptions.find((option) => option.name === batch.foreman)?.userId ?? null)),
     );
     setEditingKey(batch.key);
     setSelectedIds(batch.entries.map((entry) => entry.employee_id));
@@ -1012,8 +1012,8 @@ export function TimesheetsTab({
     setForeman(batch.foreman);
     setSelectedForemanId(
       batch.entries[0]?.foreman_user_id ??
-        foremanOptions.find((option) => option.name === batch.foreman)?.userId ??
-        null,
+      foremanOptions.find((option) => option.name === batch.foreman)?.userId ??
+      null,
     );
     setEditingKey(null);
     setSelectedIds(batch.entries.map((entry) => entry.employee_id));
@@ -1106,21 +1106,73 @@ export function TimesheetsTab({
   };
 
   const selectProject = (project: Project) => {
-    if (role === "foreman") {
-      openAssignedProject(project);
+    if (dirty && !confirmDiscard()) return;
+
+    // 1. Check if worker assignments are still loading or errored out
+    if (assignmentsQuery.isLoading) {
+      notify("Project worker assignments are still loading.", "warn");
       return;
     }
-    if (dirty && !confirmDiscard()) return;
+    if (assignmentsQuery.error) {
+      notify(
+        `Could not load project worker assignments: ${assignmentsQuery.error.message}`,
+        "warn",
+      );
+      return;
+    }
+
+    // 2. Find the foreman assigned to this project
     const assignedForeman = foremanOptions.find(
       (option) => option.userId === project.foreman_user_id,
     );
+    const foremanName = assignedForeman?.name ?? "";
+    const foremanUserId = assignedForeman?.userId ?? null;
+
+    // 3. Find any timesheet entries already saved for this project today
+    const projectEntries = timesheets.filter(
+      (entry) => entry.project_id === project.id || entry.site === project.name,
+    );
+    const entryIds = new Set(projectEntries.map((entry) => entry.employee_id));
+
+    // 4. Gather all employees officially assigned to this project on this date (for Admin & Foreman)
+    const assignedEmployeeIds = (assignmentsQuery.data ?? [])
+      .filter(
+        (assignment) =>
+          assignment.project_id === project.id &&
+          (role !== "foreman" || assignment.foreman_user_id === currentUserId) &&
+          assignment.effective_from <= workDate &&
+          (!assignment.effective_to || assignment.effective_to >= workDate),
+      )
+      .map((assignment) => assignment.employee_id);
+
+    // 5. Combine assigned workers and already-marked workers into one list
+    const candidateIds = new Set([...assignedEmployeeIds, ...entryIds]);
+    const employeeIds = [...candidateIds].filter((id) => {
+      if (!employeeById.has(id)) return false;
+      const existing = timesheets.find((entry) => entry.employee_id === id);
+      return !existing || entryIds.has(id);
+    });
+
+    // 6. Check if there is an existing batch for these entries
+    const matchingBatch = savedBatches.find((batch) =>
+      batch.entries.some((entry) => entryIds.has(entry.employee_id)),
+    );
+
+    // 7. Update the state so the project and its assigned employees instantly appear on screen!
     setSite(project.name);
     setSelectedProjectId(project.id);
-    setForeman(assignedForeman?.name ?? "");
-    setSelectedForemanId(assignedForeman?.userId ?? null);
-    setSelectedIds([]);
-    setAttendance({});
-    setEditingKey(null);
+    setForeman(foremanName);
+    setSelectedForemanId(foremanUserId);
+    setEditingKey(matchingBatch?.key ?? null);
+    setSelectedIds(employeeIds); // <-- Now populates the admin view automatically!
+    setAttendance(
+      Object.fromEntries(
+        employeeIds.map((id) => {
+          const existing = projectEntries.find((entry) => entry.employee_id === id);
+          return [id, existing ? attendanceFromRecord(existing) : defaultAttendance()];
+        }),
+      ),
+    );
     setDirty(false);
     setEmployeeSearch("");
     setEmployeePickerOpen(false);
@@ -1352,22 +1404,20 @@ export function TimesheetsTab({
                     setSheetOpen(true);
                   }}
                   aria-pressed={selected}
-                  className={`project-attendance-card rounded-lg border px-3 py-2.5 text-left transition hover:border-navy/40 hover:shadow-sm ${
-                    selected
+                  className={`project-attendance-card rounded-lg border px-3 py-2.5 text-left transition hover:border-navy/40 hover:shadow-sm ${selected
                       ? "border-navy bg-navy-soft shadow-sm"
                       : "border-border bg-card"
-                  }`}
+                    }`}
                 >
                   <span className="flex items-center justify-between gap-2">
                     <span className="truncate font-display text-sm font-bold text-navy">
                       {project.name}
                     </span>
                     <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                        project.active
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${project.active
                           ? "bg-emerald-100 text-emerald-800"
                           : "bg-slate-100 text-slate-600"
-                      }`}
+                        }`}
                     >
                       {project.active ? "Active" : "Completed"}
                     </span>
@@ -1743,11 +1793,10 @@ export function TimesheetsTab({
                                 return (
                                   <label
                                     key={employee.id}
-                                    className={`flex min-h-11 items-center gap-3 rounded-lg px-2 py-2 text-sm ${
-                                      assignedOutsideBatch
+                                    className={`flex min-h-11 items-center gap-3 rounded-lg px-2 py-2 text-sm ${assignedOutsideBatch
                                         ? "cursor-not-allowed opacity-50"
                                         : "cursor-pointer hover:bg-navy-soft"
-                                    }`}
+                                      }`}
                                   >
                                     <input
                                       type="checkbox"
@@ -1794,9 +1843,9 @@ export function TimesheetsTab({
                               className={`${btnOutline} rounded-md px-2.5 py-1 text-xs`}
                             >
                               {filteredPickerEmployees.length > 0 &&
-                              filteredPickerEmployees.every((employee) =>
-                                selectedIds.includes(employee.id),
-                              )
+                                filteredPickerEmployees.every((employee) =>
+                                  selectedIds.includes(employee.id),
+                                )
                                 ? "Clear available"
                                 : "Select all available"}
                             </button>
@@ -1821,7 +1870,7 @@ export function TimesheetsTab({
                       className={`${btnOutline} h-8 px-2.5 py-1 text-xs`}
                     >
                       {filteredPickerEmployees.length > 0 &&
-                      filteredPickerEmployees.every((employee) => selectedIds.includes(employee.id))
+                        filteredPickerEmployees.every((employee) => selectedIds.includes(employee.id))
                         ? "Clear available"
                         : "Select all"}
                     </button>
@@ -2293,9 +2342,9 @@ export function TimesheetsTab({
                                 <td className="px-2 text-slate-500">
                                   {firstEntry
                                     ? new Date(firstEntry.created_at).toLocaleString("en-GB", {
-                                        dateStyle: "short",
-                                        timeStyle: "short",
-                                      })
+                                      dateStyle: "short",
+                                      timeStyle: "short",
+                                    })
                                     : "—"}
                                 </td>
                                 <td className="px-2 text-right">
