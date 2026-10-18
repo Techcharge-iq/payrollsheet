@@ -275,13 +275,13 @@ function MobileAttendanceCard({
       </div>
 
       {/* Time Inputs Row: Wider In/Out, Narrower Break/OT */}
-      <div className="mt-2.5 flex items-end gap-1.5">ì
+      <div className="mt-2.5 flex items-end gap-1.5">
         {visibleColumns.inTime && (
           <label className="min-w-0 flex-[1.2] text-[9px] font-bold uppercase tracking-wide text-slate-500">
             In
             <input
               type="time"
-              value={row.inTime}
+              value={row.intime}
               disabled={!workedToday}
               onChange={(event) => onUpdate({ inTime: event.target.value })}
               aria-label={`${employee.name} clock-in time`}
@@ -2014,21 +2014,15 @@ export function TimesheetsTab({
                           <thead className="bg-slate-100">
                             <tr className="h-8 border-b border-border text-[10px] font-bold uppercase tracking-wide text-slate-500">
                               <th className="w-9 px-2 text-center" aria-label="Selected" />
-                              <th className="w-32 px-2 text-left">Status</th>
+                              <th className="w-22 px-2 text-left">Status</th>
                               <th className="sticky left-[164px] z-20 w-36 bg-slate-100 px-2 text-left">
                                 Employee
                               </th>
                               <th className="w-36 px-2 text-left">Role / Phone</th>
                               {visibleColumns.inTime && <th className="w-52 px-2 text-left">In</th>}
-                              {visibleColumns.outTime && (
-                                <th className="w-52 px-2 text-left">Out</th>
-                              )}
-                              {visibleColumns.breakHours && (
-                                <th className="w-20 px-2 text-left">Break (hrs)</th>
-                              )}
-                              {visibleColumns.overtime && (
-                                <th className="w-24 px-2 text-left">Overtime (hrs)</th>
-                              )}
+                              {visibleColumns.outTime && <th className="w-52 px-2 text-left">Out</th>}
+                              {visibleColumns.breakHours && <th className="w-20 px-2 text-left">Break (hrs)</th>}
+                              {visibleColumns.overtime && <th className="w-24 px-2 text-left">Overtime (hrs)</th> }
                               <th className="w-28 px-2 text-left">Total hrs</th>
                               <th className="w-48 px-2 text-left">Attendance note</th>
                               <th className="w-12 px-2 text-center">Actions</th>
