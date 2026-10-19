@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   CalendarDays,
   Check,
-  Clock3,
   ChevronDown,
   Copy,
   MapPin,
@@ -156,42 +155,6 @@ function hoursFor(draft: AttendanceDraft) {
   return Math.max(0, (end - start) / 60 - (Number(draft.breakHours) || 0));
 }
 
-const SUMMARY_TONES: Record<string, string> = {
-  Marked: "bg-amber-50 text-amber-600",
-  Present: "bg-emerald-50 text-emerald-600",
-  "Total Hours": "bg-blue-50 text-blue-600",
-  Selected: "bg-slate-100 text-slate-600",
-};
-
-function AttendanceSummaryCard({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: number | string;
-  icon: LucideIcon;
-}) {
-  return (
-    <article className={`${card} flex min-w-0 items-center justify-between gap-2 px-3 py-2.5`}>
-      <div className="min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-          {label}
-        </p>
-        <p className="mt-1 truncate font-display text-lg font-extrabold tabular-nums text-navy">
-          {value}
-          {label === "Total Hours" ? " hrs" : label === "Selected" ? " employees" : ""}
-        </p>
-      </div>
-      <span
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${SUMMARY_TONES[label] ?? "bg-blue-50 text-blue-600"}`}
-      >
-        <Icon size={16} aria-hidden="true" />
-      </span>
-    </article>
-  );
-}
-
 function MobileAttendanceCard({
   employee,
   row,
@@ -281,7 +244,7 @@ function MobileAttendanceCard({
             In
             <input
               type="time"
-              value={row.intime}
+              value={row.inTime}
               disabled={!workedToday}
               onChange={(event) => onUpdate({ inTime: event.target.value })}
               aria-label={`${employee.name} clock-in time`}
@@ -630,11 +593,6 @@ export function TimesheetsTab({
     [editingKey, selectedEmployees, timesheets],
   );
   const selectedCount = selectedIds.length;
-  const markedCount = timesheets.length;
-  const presentCount = timesheets.filter(
-    (entry) => entry.status === "PRESENT" || entry.status === "HALF_DAY",
-  ).length;
-  const recordedHours = timesheets.reduce((total, entry) => total + Number(entry.total_hours), 0);
   const scheduledHours = (row: AttendanceDraft) =>
     hoursFor({
       ...row,
@@ -1652,19 +1610,6 @@ export function TimesheetsTab({
               </div>
             ) : (
               <>
-                <section
-                  className="mb-1 grid grid-cols-2 gap-2"
-                  aria-label="Daily attendance summary"
-                >
-                  {[
-                    { label: "Marked", value: markedCount, icon: Users },
-                    { label: "Present", value: presentCount, icon: Check },
-                    { label: "Total Hours", value: recordedHours.toFixed(1), icon: Clock3 },
-                    { label: "Selected", value: selectedCount, icon: CalendarDays },
-                  ].map(({ label, value, icon }) => (
-                    <AttendanceSummaryCard key={label} label={label} value={value} icon={icon} />
-                  ))}
-                </section>
                 {!assignmentsQuery.isLoading &&
                   !assignmentsQuery.error &&
                   projectAssignmentIds.size === 0 && (
@@ -1888,13 +1833,11 @@ export function TimesheetsTab({
                     </p>
                   )}
 
-                  <div className="attendance-scroll-reveal rounded-xl border border-border bg-white p-3 shadow-sm">
-                    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                  <div className="attendance-scroll-reveal rounded-lg border border-border bg-white px-3 py-2 shadow-sm">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <h3 className="text-sm font-bold text-navy">Bulk shift</h3>
-                        <p className="mt-0.5 text-[11px] text-muted-foreground">
-                          Set the shift and apply it to selected employees.
-                        </p>
+                        <h3 className="text-xs font-bold text-navy">Bulk shift</h3>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">Set once, then apply to selected employees.</p>
                       </div>
                       {dirty && (
                         <span className="text-[11px] font-semibold text-warn" role="status">
@@ -1902,7 +1845,7 @@ export function TimesheetsTab({
                         </span>
                       )}
                     </div>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem]">
+                    <div className="grid grid-cols-2 gap-2 md:grid-cols-[minmax(110px,150px)_minmax(110px,150px)_92px_minmax(0,1fr)_auto] md:items-end">
                       <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-slate-500">
                         In
                         <input
@@ -1910,7 +1853,7 @@ export function TimesheetsTab({
                           value={bulkInTime}
                           onChange={(event) => setBulkInTime(event.target.value)}
                           aria-label="Bulk in time"
-                          className={`${input} mt-1 h-9 w-full rounded-md px-2 py-1 text-sm font-semibold tabular-nums`}
+                          className={`${input} mt-1 h-8 w-full rounded-md px-2 py-1 text-xs font-semibold tabular-nums`}
                         />
                       </label>
                       <label className="min-w-0 text-[10px] font-bold uppercase tracking-wide text-slate-500">
@@ -1920,10 +1863,10 @@ export function TimesheetsTab({
                           value={bulkOutTime}
                           onChange={(event) => setBulkOutTime(event.target.value)}
                           aria-label="Bulk out time"
-                          className={`${input} mt-1 h-9 w-full rounded-md px-2 py-1 text-sm font-semibold tabular-nums`}
+                          className={`${input} mt-1 h-8 w-full rounded-md px-2 py-1 text-xs font-semibold tabular-nums`}
                         />
                       </label>
-                      <label className="col-span-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 sm:col-span-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
                         Break (hrs)
                         <input
                           type="number"
@@ -1933,11 +1876,11 @@ export function TimesheetsTab({
                           value={bulkBreakHours}
                           onChange={(event) => setBulkBreakHours(event.target.value)}
                           aria-label="Bulk break duration in hours"
-                          className={`${input} mt-1 h-9 w-full rounded-md px-2 py-1 text-sm tabular-nums`}
+                          className={`${input} mt-1 h-8 w-full rounded-md px-2 py-1 text-xs tabular-nums`}
                         />
                       </label>
                     </div>
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-3">
+                    <div className="col-span-2 mt-1 flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-2 md:col-span-2 md:mt-0 md:border-0 md:pt-0">
                       <div className="flex flex-wrap gap-1.5">
                         {SHIFT_PRESETS.map(({ start, end, label }) => (
                           <button
@@ -1947,7 +1890,7 @@ export function TimesheetsTab({
                               setBulkInTime(start);
                               setBulkOutTime(end);
                             }}
-                            className={`${btnOutline} h-8 rounded-full px-3 py-1 text-[11px]`}
+                            className={`${btnOutline} h-7 rounded-md px-2 py-1 text-[10px]`}
                           >
                             {label}{" "}
                             <span className="ml-1 tabular-nums text-slate-500">
@@ -1970,7 +1913,7 @@ export function TimesheetsTab({
                           type="button"
                           onClick={applySchedule}
                           disabled={!selectedCount}
-                          className={`${btnGold} h-8 rounded-md px-3 py-1 text-xs`}
+                          className={`${btnGold} h-8 rounded-md px-3 py-1 text-xs whitespace-nowrap`}
                         >
                           <Check size={13} /> Apply to selected
                         </button>
@@ -2008,7 +1951,7 @@ export function TimesheetsTab({
                         <table
                           className="w-full table-fixed border-collapse text-xs"
                           style={{
-                            minWidth: `${880 + Number(visibleColumns.inTime) * 176 + Number(visibleColumns.outTime) * 176 + Number(visibleColumns.breakHours) * 72 + Number(visibleColumns.overtime) * 80}px`,
+                            minWidth: `${880 + Number(visibleColumns.inTime) * 144 + Number(visibleColumns.outTime) * 144 + Number(visibleColumns.breakHours) * 72 + Number(visibleColumns.overtime) * 80}px`,
                           }}
                         >
                           <thead className="bg-slate-100">
@@ -2019,8 +1962,8 @@ export function TimesheetsTab({
                                 Employee
                               </th>
                               <th className="w-36 px-2 text-left">Role / Phone</th>
-                              {visibleColumns.inTime && <th className="w-52 px-2 text-left">In</th>}
-                              {visibleColumns.outTime && <th className="w-52 px-2 text-left">Out</th>}
+                              {visibleColumns.inTime && <th className="w-36 px-2 text-left">In</th>}
+                              {visibleColumns.outTime && <th className="w-36 px-2 text-left">Out</th>}
                               {visibleColumns.breakHours && <th className="w-20 px-2 text-left">Break (hrs)</th>}
                               {visibleColumns.overtime && <th className="w-24 px-2 text-left">Overtime (hrs)</th> }
                               <th className="w-28 px-2 text-left">Total hrs</th>
@@ -2075,7 +2018,7 @@ export function TimesheetsTab({
                                           ? "border-sky-200 bg-sky-50 text-sky-800"
                                           : "border-slate-200 bg-white text-slate-700";
                                 return (
-                                  <tr key={employee.id} className="h-11 hover:bg-slate-50/70">
+                                  <tr key={employee.id} className="h-10 whitespace-nowrap hover:bg-slate-50/70">
                                     <td className="px-2 text-center">
                                       <input
                                         type="checkbox"
@@ -2105,13 +2048,13 @@ export function TimesheetsTab({
                                       </select>
                                     </td>
                                     <td
-                                      className="sticky left-[164px] z-10 truncate bg-card px-2 font-semibold text-navy"
+                                      className="sticky left-[164px] z-10 max-w-36 truncate bg-card px-2 font-semibold text-navy"
                                       title={employee.name}
                                     >
                                       {employee.name}
                                     </td>
                                     <td
-                                      className="truncate px-2 text-[11px] text-slate-500"
+                                      className="max-w-36 truncate px-2 text-[11px] text-slate-500"
                                       title={`${employee.trade} / ${employee.id_number || employee.id}`}
                                     >
                                       {employee.trade} / {employee.id_number || `ID ${employee.id}`}
@@ -2156,7 +2099,7 @@ export function TimesheetsTab({
                                             })
                                           }
                                           aria-label={`${employee.name} break hours`}
-                                          className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
+                                          className={`${input} h-7 min-w-0 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
                                         />
                                       </td>
                                     )}
@@ -2174,7 +2117,7 @@ export function TimesheetsTab({
                                             })
                                           }
                                           aria-label={`${employee.name} overtime hours`}
-                                          className={`${input} h-7 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
+                                          className={`${input} h-7 min-w-0 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
                                         />
                                       </td>
                                     )}
@@ -2211,7 +2154,7 @@ export function TimesheetsTab({
                                         }
                                         aria-label={`${employee.name} attendance note`}
                                         placeholder="Add a note for this shift"
-                                        className={`${input} attendance-notes-input h-9 w-48 rounded px-2 py-1 text-xs`}
+                                        className={`${input} attendance-notes-input h-7 w-36 rounded px-2 py-0 text-[11px]`}
                                       />
                                     </td>
                                     <td className="px-2 text-center">
