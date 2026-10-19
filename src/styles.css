@@ -212,6 +212,19 @@
     color: var(--warn);
   }
 
+  .timesheet-shell {
+    background:
+      radial-gradient(circle at top left, oklch(0.66 0.12 224 / 0.12), transparent 28%),
+      linear-gradient(180deg, oklch(0.985 0.004 220), oklch(0.962 0.006 220));
+    border-radius: 1.25rem;
+    padding: 0.25rem;
+  }
+
+  .timesheet-panel {
+    border-radius: 1rem;
+    box-shadow: 0 12px 30px oklch(0.2 0.026 233 / 0.05);
+  }
+
   .attendance-scroll-reveal {
     opacity: 0;
     transform: translateY(14px) scale(0.99);
