@@ -47,18 +47,16 @@ interface AttendanceDraft {
   inTime: string;
   outTime: string;
   breakHours: string;
-  overtime: string;
   manualHours: string;
   notes: string;
 }
 
-type AttendanceColumn = "inTime" | "outTime" | "breakHours" | "overtime";
+type AttendanceColumn = "inTime" | "outTime" | "breakHours";
 
 const ATTENDANCE_COLUMNS: Array<{ value: AttendanceColumn; label: string }> = [
   { value: "inTime", label: "In time" },
   { value: "outTime", label: "Out time" },
   { value: "breakHours", label: "Break" },
-  { value: "overtime", label: "Overtime" },
 ];
 
 const SHIFT_PRESETS = [
@@ -105,7 +103,6 @@ function defaultAttendance(): AttendanceDraft {
     inTime: "08:00",
     outTime: "17:00",
     breakHours: "1",
-    overtime: "0",
     manualHours: "10",
     notes: "",
   };
@@ -117,7 +114,6 @@ function attendanceFromRecord(entry: TimesheetRecord): AttendanceDraft {
     inTime: entry.in_time?.slice(0, 5) ?? "",
     outTime: entry.out_time?.slice(0, 5) ?? "",
     breakHours: String(entry.break_hours ?? 0),
-    overtime: String(entry.overtime_hours ?? 0),
     manualHours: String(entry.total_hours ?? 0),
     notes: entry.remarks ?? "",
   };
@@ -280,21 +276,6 @@ function MobileAttendanceCard({
             />
           </label>
         )}
-        {visibleColumns.overtime && (
-          <label className="w-12 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
-            OT
-            <input
-              type="number"
-              min="0"
-              step="0.25"
-              value={row.overtime}
-              disabled={!workedToday}
-              onChange={(event) => onUpdate({ overtime: event.target.value })}
-              aria-label={`${employee.name} overtime hours`}
-              className={`${compactField} w-full px-1`}
-            />
-          </label>
-        )}
         {manualEntry && (
           <label className="w-12 shrink-0 text-[9px] font-bold uppercase tracking-wide text-slate-500">
             Manual
@@ -449,7 +430,6 @@ export function TimesheetsTab({
     inTime: true,
     outTime: true,
     breakHours: true,
-    overtime: true,
   });
   const sectionRef = useRef<HTMLElement | null>(null);
   const pendingDateEdit = useRef<{
@@ -884,7 +864,6 @@ export function TimesheetsTab({
         next.inTime = "";
         next.outTime = "";
         next.breakHours = "0";
-        next.overtime = "0";
       } else if (patch.status && worked(patch.status)) {
         next.inTime ||= "08:00";
         next.outTime ||= "17:00";
@@ -1171,7 +1150,6 @@ export function TimesheetsTab({
       const row = attendance[employee.id] ?? defaultAttendance();
       if (!worked(row.status)) return false;
       const breakHours = visibleColumns.breakHours ? Number(row.breakHours) : 0;
-      const overtime = visibleColumns.overtime ? Number(row.overtime) : 0;
       if (manualHoursEntry) {
         const manualHours = Number(row.manualHours);
         const duration = (manualHours + breakHours) * 60;
@@ -1186,9 +1164,6 @@ export function TimesheetsTab({
           duration >= 24 * 60 ||
           !Number.isFinite(breakHours) ||
           breakHours < 0 ||
-          !Number.isFinite(overtime) ||
-          overtime < 0 ||
-          overtime > manualHours ||
           (visibleColumns.inTime && startMinutes + duration >= 24 * 60) ||
           (!visibleColumns.inTime && visibleColumns.outTime && endMinutes - duration < 0) ||
           (!visibleColumns.inTime && !visibleColumns.outTime && 8 * 60 + duration >= 24 * 60)
@@ -1199,7 +1174,6 @@ export function TimesheetsTab({
       const startMinutes = start[0]! * 60 + start[1]!;
       const endMinutes = end[0]! * 60 + end[1]!;
       const visibleBreakHours = visibleColumns.breakHours ? Number(row.breakHours) : 0;
-      const visibleOvertime = visibleColumns.overtime ? Number(row.overtime) : 0;
       const shiftHours = (endMinutes - startMinutes) / 60;
       return (
         !row.inTime ||
@@ -1207,15 +1181,12 @@ export function TimesheetsTab({
         endMinutes <= startMinutes ||
         !Number.isFinite(visibleBreakHours) ||
         visibleBreakHours < 0 ||
-        visibleBreakHours > shiftHours ||
-        !Number.isFinite(visibleOvertime) ||
-        visibleOvertime < 0 ||
-        visibleOvertime > shiftHours - visibleBreakHours
+        visibleBreakHours > shiftHours
       );
     });
     if (invalid.length) {
       notify(
-        `Check the total-hours or time, break, and overtime values for ${invalid.map((employee) => employee.name).join(", ")}.`,
+        `Check the total-hours or time and break values for ${invalid.map((employee) => employee.name).join(", ")}.`,
         "warn",
       );
       return;
@@ -1225,7 +1196,6 @@ export function TimesheetsTab({
       const row = attendance[employee.id] ?? defaultAttendance();
       const doesWork = worked(row.status);
       const breakHours = visibleColumns.breakHours ? Number(row.breakHours) || 0 : 0;
-      const overtime = visibleColumns.overtime ? Number(row.overtime) || 0 : 0;
       let inTime = row.inTime;
       let outTime = row.outTime;
       if (doesWork && manualHoursEntry) {
@@ -1255,7 +1225,6 @@ export function TimesheetsTab({
         in_time: doesWork ? inTime : null,
         out_time: doesWork ? outTime : null,
         break_hours: doesWork ? breakHours : 0,
-        overtime_hours: doesWork ? overtime : 0,
         remarks: row.notes.trim() || null,
       } satisfies Omit<TimesheetRecord, "id" | "created_at" | "total_hours" | "regular_hours">;
     });
@@ -1295,8 +1264,8 @@ export function TimesheetsTab({
   };
 
   return (
-    <section ref={sectionRef} className="space-y-2.5">
-      <section className={`${card} space-y-4 p-4 sm:p-5`}>
+    <section ref={sectionRef} className="timesheet-shell space-y-3">
+      <section className={`${card} timesheet-panel space-y-4 border border-navy/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(241,245,249,0.96))] p-4 shadow-[0_14px_28px_rgba(15,23,42,0.04)] sm:p-5`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-display text-base font-extrabold text-navy">
@@ -1415,8 +1384,8 @@ export function TimesheetsTab({
           className="attendance-sheet fixed inset-0 z-[60] flex h-[100dvh] items-stretch justify-center bg-foreground/40 backdrop-blur-sm sm:items-center sm:p-4"
           aria-label="Daily timesheet editor"
         >
-          <div className="attendance-dialog flex h-full w-full max-w-6xl flex-col gap-3 overflow-y-auto bg-background p-3 shadow-2xl sm:h-auto sm:max-h-[92vh] sm:rounded-2xl sm:p-5">
-            <header className="sticky top-0 z-20 -mx-3 mb-1 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-slate-50/95 px-3 pb-3 pt-2 backdrop-blur-md sm:-mx-5 sm:px-5">
+          <div className="attendance-dialog flex h-full w-full max-w-6xl flex-col gap-3 overflow-y-auto bg-[linear-gradient(180deg,#fbfcff_0%,#f4f7fb_100%)] p-3 shadow-[0_30px_70px_rgba(15,23,42,0.18)] sm:h-auto sm:max-h-[92vh] sm:rounded-2xl sm:p-5">
+            <header className="sticky top-0 z-20 -mx-3 mb-1 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-white/90 px-3 pb-3 pt-2 backdrop-blur-md sm:-mx-5 sm:px-5">
               <div className="min-w-0">
                 <h2 className="truncate font-display text-lg font-bold text-navy">
                   {site || "Select a project"}
@@ -1951,7 +1920,7 @@ export function TimesheetsTab({
                         <table
                           className="w-full table-fixed border-collapse text-xs"
                           style={{
-                            minWidth: `${880 + Number(visibleColumns.inTime) * 144 + Number(visibleColumns.outTime) * 144 + Number(visibleColumns.breakHours) * 72 + Number(visibleColumns.overtime) * 80}px`,
+                            minWidth: `${880 + Number(visibleColumns.inTime) * 144 + Number(visibleColumns.outTime) * 144 + Number(visibleColumns.breakHours) * 72}px`,
                           }}
                         >
                           <thead className="bg-slate-100">
@@ -1962,11 +1931,10 @@ export function TimesheetsTab({
                                 Employee
                               </th>
                               <th className="w-36 px-2 text-left">Role / Phone</th>
-                              {visibleColumns.inTime && <th className="w-36 px-2 text-left">In</th>}
-                              {visibleColumns.outTime && <th className="w-36 px-2 text-left">Out</th>}
-                              {visibleColumns.breakHours && <th className="w-20 px-2 text-left">Break (hrs)</th>}
-                              {visibleColumns.overtime && <th className="w-24 px-2 text-left">Overtime (hrs)</th> }
-                              <th className="w-28 px-2 text-left">Total hrs</th>
+                              {visibleColumns.inTime && <th className="w-28 px-2 text-left">In</th>}
+                              {visibleColumns.outTime && <th className="w-28 px-2 text-left">Out</th>}
+                              {visibleColumns.breakHours && <th className="w-16 px-2 text-left">Break</th>}
+                              <th className="w-24 px-2 text-left">Total hrs</th>
                               <th className="w-48 px-2 text-left">Attendance note</th>
                               <th className="w-12 px-2 text-center">Actions</th>
                             </tr>
@@ -1975,13 +1943,7 @@ export function TimesheetsTab({
                             {selectedEmployees.length === 0 ? (
                               <tr>
                                 <td
-                                  colSpan={
-                                    7 +
-                                    Number(visibleColumns.inTime) +
-                                    Number(visibleColumns.outTime) +
-                                    Number(visibleColumns.breakHours) +
-                                    Number(visibleColumns.overtime)
-                                  }
+                                  colSpan={7 + Number(visibleColumns.inTime) + Number(visibleColumns.outTime) + Number(visibleColumns.breakHours)}
                                   className="h-14 px-3 text-center text-xs text-muted-foreground"
                                 >
                                   Select employees above to add them to this attendance batch.
@@ -2099,24 +2061,6 @@ export function TimesheetsTab({
                                             })
                                           }
                                           aria-label={`${employee.name} break hours`}
-                                          className={`${input} h-7 min-w-0 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
-                                        />
-                                      </td>
-                                    )}
-                                    {visibleColumns.overtime && (
-                                      <td className="px-2">
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          step="0.25"
-                                          value={row.overtime}
-                                          disabled={!workedToday}
-                                          onChange={(event) =>
-                                            updateAttendance(employee.id, {
-                                              overtime: event.target.value,
-                                            })
-                                          }
-                                          aria-label={`${employee.name} overtime hours`}
                                           className={`${input} h-7 min-w-0 rounded px-1.5 py-0 text-xs disabled:opacity-50`}
                                         />
                                       </td>
