@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Save } from "lucide-react";
 import type { Employee } from "@/lib/payroll";
@@ -93,6 +93,149 @@ function worked(status: AttendanceStatus) {
   return status === "PRESENT" || status === "HALF_DAY";
 }
 
+interface MonthDayRowProps {
+  day: number;
+  row: DayDraft;
+  projects: Array<{ id: string; name: string; active: boolean }>;
+  foremanOptions: Array<{ value: string; userId: string | null; name: string; label: string }>;
+  updateDay: (day: number, patch: Partial<DayDraft>) => void;
+}
+
+// Memoized individual row component to prevent re-rendering all 31 days on single-day edits
+const MonthDayRow = memo(function MonthDayRow({
+  day,
+  row,
+  projects,
+  foremanOptions,
+  updateDay,
+}: MonthDayRowProps) {
+  const isWorked = row.status ? worked(row.status) : false;
+
+  return (
+    <tr className="border-t border-border">
+      <td className="px-2 py-1.5 font-semibold text-navy">{day}</td>
+      <td className="px-2 py-1.5">
+        <select
+          value={row.status}
+          onChange={(event) =>
+            updateDay(day, {
+              status: event.target.value as AttendanceStatus | "",
+            })
+          }
+          aria-label={`Day ${day} status`}
+          className={`${select} min-w-32 px-2 py-1`}
+        >
+          <option value="">Not recorded</option>
+          {ATTENDANCE_STATUSES.map((status) => (
+            <option key={status.value} value={status.value}>
+              {status.label}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="px-2 py-1.5">
+        <select
+          value={
+            row.projectId ||
+            projects.find((project) => project.name === row.site)?.id ||
+            ""
+          }
+          onChange={(event) => {
+            const project = projects.find((item) => item.id === event.target.value);
+            updateDay(day, {
+              projectId: project?.id ?? "",
+              site: project?.name ?? "",
+            });
+          }}
+          aria-label={`Day ${day} site`}
+          className={`${select} min-w-40 px-2 py-1`}
+        >
+          <option value="">Choose project</option>
+          {projects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+              {project.active ? "" : " (completed)"}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="px-2 py-1.5">
+        <select
+          value={
+            row.foremanUserId ||
+            foremanOptions.find((option) => option.name === row.foreman)?.value ||
+            ""
+          }
+          onChange={(event) => {
+            const option = foremanOptions.find((item) => item.value === event.target.value);
+            updateDay(day, {
+              foreman: option?.name ?? "",
+              foremanUserId: option?.userId ?? "",
+            });
+          }}
+          aria-label={`Day ${day} foreman`}
+          className={`${select} min-w-40 px-2 py-1`}
+        >
+          <option value="">Choose foreman</option>
+          {foremanOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="px-2 py-1.5">
+        <TimeControl
+          value={row.inTime}
+          disabled={!isWorked}
+          onChange={(value) => updateDay(day, { inTime: value })}
+          label={`Day ${day} in time`}
+        />
+      </td>
+      <td className="px-2 py-1.5">
+        <TimeControl
+          value={row.outTime}
+          disabled={!isWorked}
+          onChange={(value) => updateDay(day, { outTime: value })}
+          label={`Day ${day} out time`}
+        />
+      </td>
+      <td className="px-2 py-1.5">
+        <input
+          type="number"
+          min="0"
+          step="0.25"
+          value={row.breakHours}
+          disabled={!isWorked}
+          onChange={(event) => updateDay(day, { breakHours: event.target.value })}
+          aria-label={`Day ${day} break hours`}
+          className={`${input} w-20 px-2 py-1 text-right disabled:opacity-50`}
+        />
+      </td>
+      <td className="px-2 py-1.5">
+        <input
+          type="number"
+          min="0"
+          step="0.25"
+          value={row.overtime}
+          disabled={!isWorked}
+          onChange={(event) => updateDay(day, { overtime: event.target.value })}
+          aria-label={`Day ${day} overtime hours`}
+          className={`${input} w-20 px-2 py-1 text-right disabled:opacity-50`}
+        />
+      </td>
+      <td className="px-2 py-1.5">
+        <input
+          value={row.remarks}
+          onChange={(event) => updateDay(day, { remarks: event.target.value })}
+          aria-label={`Day ${day} remarks`}
+          className={`${input} attendance-notes-input w-12 px-1 py-1`}
+        />
+      </td>
+    </tr>
+  );
+});
+
 export function MonthlyAttendanceDialog({
   employees,
   saving,
@@ -175,22 +318,24 @@ export function MonthlyAttendanceDialog({
     loadedContext.current = context;
   }, [employeeId, month, timesheetsQuery.data, timesheetsQuery.error, timesheetsQuery.isLoading]);
 
-  const updateDay = (day: number, patch: Partial<DayDraft>) => {
-    setDays((current) => {
-      const next = { ...(current[day] ?? emptyDay()), ...patch };
-      if (patch.status && !worked(patch.status)) {
-        next.inTime = "";
-        next.outTime = "";
-        next.breakHours = "0";
-        next.overtime = "0";
-      } else if (patch.status && worked(patch.status)) {
-        next.inTime ||= "08:00";
-        next.outTime ||= "17:00";
-        next.breakHours ||= "1";
-      }
-      return { ...current, [day]: next };
-    });
-  };
+  const updateDay = useMemo(() => {
+    return (day: number, patch: Partial<DayDraft>) => {
+      setDays((current) => {
+        const next = { ...(current[day] ?? emptyDay()), ...patch };
+        if (patch.status && !worked(patch.status)) {
+          next.inTime = "";
+          next.outTime = "";
+          next.breakHours = "0";
+          next.overtime = "0";
+        } else if (patch.status && worked(patch.status)) {
+          next.inTime ||= "08:00";
+          next.outTime ||= "17:00";
+          next.breakHours ||= "1";
+        }
+        return { ...current, [day]: next };
+      });
+    };
+  }, []);
 
   const save = async () => {
     if (!employeeId) {
@@ -352,133 +497,15 @@ export function MonthlyAttendanceDialog({
                 <tbody>
                   {calendarDays.map((day) => {
                     const row = days[day] ?? emptyDay();
-                    const isWorked = row.status ? worked(row.status) : false;
                     return (
-                      <tr key={day} className="border-t border-border">
-                        <td className="px-2 py-1.5 font-semibold text-navy">{day}</td>
-                        <td className="px-2 py-1.5">
-                          <select
-                            value={row.status}
-                            onChange={(event) =>
-                              updateDay(day, {
-                                status: event.target.value as AttendanceStatus | "",
-                              })
-                            }
-                            aria-label={`Day ${day} status`}
-                            className={`${select} min-w-32 px-2 py-1`}
-                          >
-                            <option value="">Not recorded</option>
-                            {ATTENDANCE_STATUSES.map((status) => (
-                              <option key={status.value} value={status.value}>
-                                {status.label}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <select
-                            value={
-                              row.projectId ||
-                              projects.find((project) => project.name === row.site)?.id ||
-                              ""
-                            }
-                            onChange={(event) => {
-                              const project = projects.find(
-                                (item) => item.id === event.target.value,
-                              );
-                              updateDay(day, {
-                                projectId: project?.id ?? "",
-                                site: project?.name ?? "",
-                              });
-                            }}
-                            aria-label={`Day ${day} site`}
-                            className={`${select} min-w-40 px-2 py-1`}
-                          >
-                            <option value="">Choose project</option>
-                            {projects.map((project) => (
-                              <option key={project.id} value={project.id}>
-                                {project.name}
-                                {project.active ? "" : " (completed)"}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <select
-                            value={
-                              row.foremanUserId ||
-                              foremanOptions.find((option) => option.name === row.foreman)?.value ||
-                              ""
-                            }
-                            onChange={(event) => {
-                              const option = foremanOptions.find(
-                                (item) => item.value === event.target.value,
-                              );
-                              updateDay(day, {
-                                foreman: option?.name ?? "",
-                                foremanUserId: option?.userId ?? "",
-                              });
-                            }}
-                            aria-label={`Day ${day} foreman`}
-                            className={`${select} min-w-40 px-2 py-1`}
-                          >
-                            <option value="">Choose foreman</option>
-                            {foremanOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <TimeControl
-                            value={row.inTime}
-                            disabled={!isWorked}
-                            onChange={(value) => updateDay(day, { inTime: value })}
-                            label={`Day ${day} in time`}
-                          />
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <TimeControl
-                            value={row.outTime}
-                            disabled={!isWorked}
-                            onChange={(value) => updateDay(day, { outTime: value })}
-                            label={`Day ${day} out time`}
-                          />
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.25"
-                            value={row.breakHours}
-                            disabled={!isWorked}
-                            onChange={(event) => updateDay(day, { breakHours: event.target.value })}
-                            aria-label={`Day ${day} break hours`}
-                            className={`${input} w-20 px-2 py-1 text-right disabled:opacity-50`}
-                          />
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.25"
-                            value={row.overtime}
-                            disabled={!isWorked}
-                            onChange={(event) => updateDay(day, { overtime: event.target.value })}
-                            aria-label={`Day ${day} overtime hours`}
-                            className={`${input} w-20 px-2 py-1 text-right disabled:opacity-50`}
-                          />
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <input
-                            value={row.remarks}
-                            onChange={(event) => updateDay(day, { remarks: event.target.value })}
-                            aria-label={`Day ${day} remarks`}
-                            className={`${input} attendance-notes-input w-12 px-1 py-1`}
-                          />
-                        </td>
-                      </tr>
+                      <MonthDayRow
+                        key={day}
+                        day={day}
+                        row={row}
+                        projects={projects}
+                        foremanOptions={foremanOptions}
+                        updateDay={updateDay}
+                      />
                     );
                   })}
                 </tbody>
