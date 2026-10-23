@@ -51,6 +51,137 @@ export function useTimesheetsForMonth(month: string) {
   });
 }
 
+async function deriveFallbackAllocations(month: string): Promise<PayrollSiteAllocation[]> {
+  const [batches, lines, timesheets] = await Promise.all([
+    readCachedRows<Tables<"payroll_batches">>("payroll_batches", { month }),
+    readCachedRows<Tables<"payroll_lines">>("payroll_lines", { month }),
+    readCachedRows<TimesheetRecord>("timesheets", { month }),
+  ]);
+
+  const monthLines = lines.filter((line) => line.month === month);
+  if (!monthLines.length) return [];
+
+  const batchesById = new Map(batches.map((b) => [b.id, b]));
+  const monthTimesheets = timesheets.filter((t) => t.work_date.startsWith(`${month}-`));
+
+  const result: PayrollSiteAllocation[] = [];
+
+  for (const line of monthLines) {
+    const batch = batchesById.get(line.batch_id);
+    const regularHours =
+      line.regular_hours !== null && line.regular_hours !== undefined
+        ? toNum(line.regular_hours)
+        : Math.max(toNum(line.hours) - toNum(line.overtime_hours), 0);
+    const overtimeHours = toNum(line.overtime_hours);
+    const rate = toNum(line.rate);
+    const regularPay =
+      line.regular_pay !== null && line.regular_pay !== undefined
+        ? toNum(line.regular_pay)
+        : regularHours * rate;
+    const overtimePay =
+      line.overtime_pay !== null && line.overtime_pay !== undefined
+        ? toNum(line.overtime_pay)
+        : overtimeHours * rate;
+    const allowances = toNum(line.allowances);
+    const grossCost =
+      line.gross_pay !== null && line.gross_pay !== undefined
+        ? toNum(line.gross_pay)
+        : regularPay + overtimePay + allowances;
+
+    const empTimesheets = monthTimesheets.filter(
+      (t) =>
+        t.employee_id === line.employee_id &&
+        (toNum(t.regular_hours) + toNum(t.overtime_hours) > 0 || toNum(t.total_hours) > 0),
+    );
+
+    if (empTimesheets.length > 0) {
+      const siteBuckets = new Map<
+        string,
+        { site: string; foreman: string; regularHours: number; overtimeHours: number }
+      >();
+      let totalRegular = 0;
+      let totalOvertime = 0;
+
+      for (const t of empTimesheets) {
+        const key = `${t.site}:::${t.foreman}`;
+        const reg = toNum(t.regular_hours ?? t.total_hours);
+        const ot = toNum(t.overtime_hours);
+        const existing = siteBuckets.get(key) ?? {
+          site: t.site,
+          foreman: t.foreman,
+          regularHours: 0,
+          overtimeHours: 0,
+        };
+        existing.regularHours += reg;
+        existing.overtimeHours += ot;
+        siteBuckets.set(key, existing);
+        totalRegular += reg;
+        totalOvertime += ot;
+      }
+
+      const totalHours = totalRegular + totalOvertime;
+      const buckets = Array.from(siteBuckets.values());
+      let allocatedSoFar = 0;
+
+      buckets.forEach((bucket, idx) => {
+        const isLast = idx === buckets.length - 1;
+        const regCost = totalRegular > 0 ? (regularPay * bucket.regularHours) / totalRegular : 0;
+        const otCost = totalOvertime > 0 ? (overtimePay * bucket.overtimeHours) / totalOvertime : 0;
+        const allowCost =
+          totalHours > 0
+            ? (allowances * (bucket.regularHours + bucket.overtimeHours)) / totalHours
+            : 0;
+        const gross = isLast
+          ? Math.round((grossCost - allocatedSoFar) * 1000) / 1000
+          : Math.round((regCost + otCost + allowCost) * 1000) / 1000;
+        allocatedSoFar += gross;
+
+        result.push({
+          id: `derived-${line.id}-${idx}`,
+          payroll_line_id: line.id,
+          employee_id: line.employee_id,
+          month: line.month,
+          site: bucket.site || batch?.site?.trim() || "Unassigned",
+          foreman: bucket.foreman || line.foreman?.trim() || batch?.foreman?.trim() || "Unassigned",
+          project_id: batch?.project_id ?? null,
+          regular_hours: Math.round(bucket.regularHours * 1000) / 1000,
+          overtime_hours: Math.round(bucket.overtimeHours * 1000) / 1000,
+          allocated_regular_pay: Math.round(regCost * 1000) / 1000,
+          allocated_overtime_pay: Math.round(otCost * 1000) / 1000,
+          allocated_allowances: Math.round(allowCost * 1000) / 1000,
+          allocated_gross_cost: gross,
+          allocation_basis: "ATTENDANCE_HOURS",
+          calculation_version: line.calculation_version ?? null,
+          created_at: line.created_at ?? new Date().toISOString(),
+        });
+      });
+    } else {
+      result.push({
+        id: `fallback-${line.id}`,
+        payroll_line_id: line.id,
+        employee_id: line.employee_id,
+        month: line.month,
+        site: batch?.site?.trim() || "Unassigned",
+        foreman: line.foreman?.trim() || batch?.foreman?.trim() || "Unassigned",
+        project_id: batch?.project_id ?? null,
+        regular_hours: regularHours,
+        overtime_hours: overtimeHours,
+        allocated_regular_pay: regularPay,
+        allocated_overtime_pay: overtimePay,
+        allocated_allowances: allowances,
+        allocated_gross_cost: grossCost,
+        allocation_basis: "LEGACY_ESTIMATED",
+        calculation_version: line.calculation_version ?? null,
+        created_at: line.created_at ?? new Date().toISOString(),
+      });
+    }
+  }
+
+  return result.sort(
+    (a, b) => a.site.localeCompare(b.site) || a.foreman.localeCompare(b.foreman),
+  );
+}
+
 export function usePayrollSiteAllocations(month: string, enabled = true) {
   return useQuery({
     queryKey: ["payroll_site_allocations", month],
@@ -61,9 +192,13 @@ export function usePayrollSiteAllocations(month: string, enabled = true) {
       const rows = await readCachedRows<PayrollSiteAllocation>("payroll_site_allocations", {
         month,
       });
-      return rows
-        .filter((row) => row.month === month)
-        .sort((a, b) => a.site.localeCompare(b.site) || a.foreman.localeCompare(b.foreman));
+      const filtered = rows.filter((row) => row.month === month);
+      if (filtered.length > 0) {
+        return filtered.sort(
+          (a, b) => a.site.localeCompare(b.site) || a.foreman.localeCompare(b.foreman),
+        );
+      }
+      return deriveFallbackAllocations(month);
     },
     enabled: enabled && /^\d{4}-(0[1-9]|1[0-2])$/.test(month),
     staleTime: 60_000,
@@ -82,7 +217,10 @@ export function useSaveTimesheets() {
       if (error) throw error;
       await writeCachedRows("timesheets", data ?? []);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["timesheets"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["timesheets"] });
+      void qc.invalidateQueries({ queryKey: ["payroll_site_allocations"] });
+    },
   });
 }
 
@@ -366,7 +504,10 @@ export function useSaveBatch(canDelete = false) {
       }
       return batchId;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["payroll_batches"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["payroll_batches"] });
+      void qc.invalidateQueries({ queryKey: ["payroll_site_allocations"] });
+    },
   });
 }
 
@@ -383,7 +524,10 @@ export function useDeleteBatch() {
       );
       await deleteCachedRows("payroll_batches", [id]);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["payroll_batches"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["payroll_batches"] });
+      void qc.invalidateQueries({ queryKey: ["payroll_site_allocations"] });
+    },
   });
 }
 
@@ -400,7 +544,10 @@ export function useUpdateBatchMeta() {
       if (error) throw error;
       await writeCachedRows("payroll_batches", [data]);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["payroll_batches"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["payroll_batches"] });
+      void qc.invalidateQueries({ queryKey: ["payroll_site_allocations"] });
+    },
   });
 }
 
@@ -417,7 +564,10 @@ export function useUpdateBatchStatus() {
       if (error) throw error;
       await writeCachedRows("payroll_batches", [data]);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["payroll_batches"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["payroll_batches"] });
+      void qc.invalidateQueries({ queryKey: ["payroll_site_allocations"] });
+    },
   });
 }
 
@@ -434,7 +584,10 @@ export function useUpdateLineForeman() {
       if (error) throw error;
       await writeCachedRows("payroll_lines", [data]);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["payroll_batches"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["payroll_batches"] });
+      void qc.invalidateQueries({ queryKey: ["payroll_site_allocations"] });
+    },
   });
 }
 
